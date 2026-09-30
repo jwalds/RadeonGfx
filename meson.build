@@ -34,6 +34,11 @@ radeon_gfx_deps = []
 if get_option('display')
 	add_project_arguments('-DRADEONGFX_DISPLAY', language: 'cpp')
 	radeon_gfx_sources += [
+		'display/DisplayRoster.cpp',
+		'display/DisplayTests.cpp',
+		'display/CursorData.cpp',
+		'display/DisplayConsumer.cpp',
+		'display/RadeonServerDisplay.cpp',
 	]
 	radeon_gfx_deps += dependency('libvideostreams')
 endif
@@ -67,12 +72,8 @@ executable('RadeonGfx',
 		'Atombios.cpp',
 		'drm/DrmInterface.cpp',
 		'drm/RadeonServerDrm.cpp',
+		'drm/FdTransfer.cpp',
 		'atombios/atom.cpp',
-		'display/DisplayRoster.cpp',
-		'display/DisplayTests.cpp',
-		'display/CursorData.cpp',
-		'display/DisplayConsumer.cpp',
-		'display/RadeonServerDisplay.cpp',
 		'Units/InstantiateUnits.cpp',
 		'Units/DmaV1Unit.cpp',
 		'Units/GfxV6Unit.cpp',

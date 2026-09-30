@@ -1,4 +1,5 @@
 #include "DrmInterface.h"
+#include "FdTransfer.h"
 #include <SupportDefs.h>
 #include "Radeon.h"
 #include "RadeonFirmware.h"
@@ -528,13 +529,13 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 			if (!buffer.IsSet()) return ENOENT;
 			int fd = buffer->AllocFd();
 			if (fd < 0) return B_ERROR;
-			args->fd = _kern_dup_foreign(B_CURRENT_TEAM, teamState.Switch()->Team(), fd, O_CLOEXEC);
+			args->fd = dup_foreign_fd(B_CURRENT_TEAM, teamState.Switch()->Team(), fd, O_CLOEXEC);
 			CheckRet(args->fd);
 			return B_OK;
 		}
 		case DRM_IOCTL_PRIME_FD_TO_HANDLE: {
 			auto args = (struct drm_prime_handle*)arg;
-			FileDescriptorCloser fd(_kern_dup_foreign(teamState.Switch()->Team(), B_CURRENT_TEAM, args->fd, O_CLOEXEC));
+			FileDescriptorCloser fd(dup_foreign_fd(teamState.Switch()->Team(), B_CURRENT_TEAM, args->fd, O_CLOEXEC));
 			if (!fd.IsSet()) return fd.Get();
 			struct stat st{};
 			CheckRet(fstat(fd.Get(), &st));
@@ -567,13 +568,13 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 			if (!syncobj.IsSet()) return ENOENT;
 			int fd = syncobj->AllocFd();
 			if (fd < 0) return B_ERROR;
-			args->fd = _kern_dup_foreign(B_CURRENT_TEAM, teamState.Switch()->Team(), fd, O_CLOEXEC);
+			args->fd = dup_foreign_fd(B_CURRENT_TEAM, teamState.Switch()->Team(), fd, O_CLOEXEC);
 			CheckRet(args->fd);
 			return B_OK;
 		}
 		case DRM_IOCTL_SYNCOBJ_FD_TO_HANDLE: {
 			auto args = (struct drm_syncobj_handle*)arg;
-			FileDescriptorCloser fd(_kern_dup_foreign(teamState.Switch()->Team(), B_CURRENT_TEAM, args->fd, O_CLOEXEC));
+			FileDescriptorCloser fd(dup_foreign_fd(teamState.Switch()->Team(), B_CURRENT_TEAM, args->fd, O_CLOEXEC));
 			if (!fd.IsSet()) return fd.Get();
 			struct stat st{};
 			CheckRet(fstat(fd.Get(), &st));
