@@ -9,7 +9,7 @@
 #include "Fence.h"
 #include "SADomains/Domains.h"
 #include "Locks/Timer.h"
-#include <private/kernel/util/DoublyLinkedList.h>
+#include <private/util/DoublyLinkedList.h>
 
 
 enum RingType {

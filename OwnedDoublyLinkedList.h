@@ -1,6 +1,6 @@
 #pragma once
 
-#include <private/kernel/util/DoublyLinkedList.h>
+#include <private/util/DoublyLinkedList.h>
 
 
 template <typename Element, typename GetLink = DoublyLinkedListStandardGetLink<Element>  >

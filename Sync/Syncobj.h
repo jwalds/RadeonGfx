@@ -2,7 +2,7 @@
 
 #include <Referenceable.h>
 #include <OS.h>
-#include <private/kernel/util/DoublyLinkedList.h>
+#include <private/util/DoublyLinkedList.h>
 #include "Locks/Mutex.h"
 #include "Locks/RecursiveLock.h"
 #include "Locks/ConditionVariable.h"

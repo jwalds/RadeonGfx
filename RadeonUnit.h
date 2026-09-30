@@ -1,7 +1,7 @@
 #pragma once
 
 #include <SupportDefs.h>
-#include <private/kernel/util/DoublyLinkedList.h>
+#include <private/util/DoublyLinkedList.h>
 
 class RadeonDevice;
 
