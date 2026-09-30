@@ -1,0 +1,2 @@
+option('display', type: 'boolean', value: false,
+	description: 'Build the DCE 6 display code (needs VideoStreams)')

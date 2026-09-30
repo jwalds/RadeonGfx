@@ -46,7 +46,9 @@ private:
 
 	ObjectDeleter<Atombios> fAtombios;
 	ExternalPtr<MemoryManager> fMemMgr;
+#ifdef RADEONGFX_DISPLAY
 	ExternalPtr<DisplayRoster> fDisplays;
+#endif
 	ExternalPtr<RadeonRingBuffer> fRings[8];
 	ExternalPtr<RadeonRingBufferInt> fIntRing;
 
@@ -90,7 +92,9 @@ public:
 
 	Atombios &Atom() {return *fAtombios.Get();}
 	ExternalPtr<MemoryManager> MemMgr() {return fMemMgr;}
+#ifdef RADEONGFX_DISPLAY
 	ExternalPtr<DisplayRoster> Displays() {return fDisplays;}
+#endif
 	ExternalPtr<RadeonRingBuffer> Rings(int ringId) {return fRings[ringId];}
 	ExternalPtr<RadeonRingBufferInt> IntRing() {return fIntRing;}
 };

@@ -1,7 +1,9 @@
 #include "RadeonDevice.h"
 #include "Atombios.h"
 #include "RadeonMemory.h"
+#ifdef RADEONGFX_DISPLAY
 #include "DisplayRoster.h"
+#endif
 #include "RingBuffer.h"
 #include "RadeonInterrupts.h"
 #include "RadeonInit.h"
@@ -49,8 +51,10 @@ static void WriteRingRegs()
 
 RadeonDevice::RadeonDevice():
 	fSharedInfo(NULL), fRegs(NULL),
-	fMemMgr(MakeExternal<MemoryManager>()),
-	fDisplays(MakeExternal<DisplayRoster>())
+	fMemMgr(MakeExternal<MemoryManager>())
+#ifdef RADEONGFX_DISPLAY
+	, fDisplays(MakeExternal<DisplayRoster>())
+#endif
 {
 }
 
@@ -218,8 +222,10 @@ status_t RadeonDevice::Init(int fd)
 	printf("engine clock: %" B_PRIu32 "\n", radeon_gpu_get_engine_clock());
 	printf("memory clock: %" B_PRIu32 "\n", radeon_gpu_get_memory_clock());
 
+#ifdef RADEONGFX_DISPLAY
 	printf("init displays\n");
 	CheckRet(fDisplays.Switch()->Init());
+#endif
 
 	return B_OK;
 }

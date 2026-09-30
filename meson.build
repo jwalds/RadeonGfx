@@ -26,7 +26,17 @@ ThreadLink = ThreadLinkProj.get_variable('ThreadLink')
 
 #VideoStreamsProj = subproject('VideoStreams')
 #VideoStreams = VideoStreamsProj.get_variable('VideoStreams')
-VideoStreams = dependency('libvideostreams')
+
+# The display code (DCE 6) needs VideoStreams, which needs a Haiku syscall
+# that isn't upstream. With the radeon_hd display driver it isn't used.
+radeon_gfx_sources = []
+radeon_gfx_deps = []
+if get_option('display')
+	add_project_arguments('-DRADEONGFX_DISPLAY', language: 'cpp')
+	radeon_gfx_sources += [
+	]
+	radeon_gfx_deps += dependency('libvideostreams')
+endif
 
 
 subdir('Sync')
@@ -66,7 +76,7 @@ executable('RadeonGfx',
 		'Units/InstantiateUnits.cpp',
 		'Units/DmaV1Unit.cpp',
 		'Units/GfxV6Unit.cpp',
-	],
+	] + radeon_gfx_sources,
 	include_directories: [
 		'headers',
 		'drm',
@@ -86,8 +96,7 @@ executable('RadeonGfx',
 		Locks,
 		SADomains,
 		ThreadLink,
-		VideoStreams
-	],
+	] + radeon_gfx_deps,
 	gnu_symbol_visibility: 'hidden',
 	install : true
 )

@@ -186,7 +186,9 @@ status_t RadeonTest()
 	switch (2) {
 		case 1: return TestCopyVRAM(ring);
 		case 2: return TestGfxFences();
+#ifdef RADEONGFX_DISPLAY
 		case 3: return TestDisplay();
+#endif
 	default: ;
 	}
 

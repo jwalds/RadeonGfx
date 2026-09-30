@@ -1,6 +1,8 @@
 #include "RadeonMemory.h"
 #include "RadeonDevice.h"
+#ifdef RADEONGFX_DISPLAY
 #include "DisplayRoster.h"
+#endif
 #include "Radeon.h"
 #include "Poke.h"
 #include "bif_3_0_d.h"
@@ -275,7 +277,11 @@ status_t MemoryManager::Init()
 	printf("VRAM range: %#" B_PRIx64 " - %#" B_PRIx64 "(%#" B_PRIx64 ")\n", fVramRange.beg, fVramRange.beg + fVramRange.size - 1, fVramRange.size);
 	printf("GTT range:  %#" B_PRIx64 " - %#" B_PRIx64 "(%#" B_PRIx64 ")\n", fGttRange.beg, fGttRange.beg + fGttRange.size - 1, fGttRange.size);
 
+#ifdef RADEONGFX_DISPLAY
 	CheckRet(gDevice.Displays().Switch()->RegisterFramebuffers());
+#else
+	// TODO: reserve the frame buffer and cursor of the display driver
+#endif
 
 	MappedBuffer dummyPage(Alloc(boDomainVramMappable, B_PAGE_SIZE));
 	memset(dummyPage.adr, 0, dummyPage.buf->size);

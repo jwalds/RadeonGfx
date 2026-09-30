@@ -1,6 +1,8 @@
 #include "RadeonServer.h"
 #include "RadeonServerDrm.h"
+#ifdef RADEONGFX_DISPLAY
 #include "RadeonServerDisplay.h"
+#endif
 #include "TeamState.h"
 #include "RadeonPower.h"
 #include <ServerThreadLink.h>
@@ -111,7 +113,12 @@ void RadeonServerThreadLink::MessageReceived(int32 what)
 
 		case radeonGetDisplayConsumer:
 		case radeonUpdateCursor:
+#ifdef RADEONGFX_DISPLAY
 			return RadeonHandleDisplayMessage(Link(), ThisState(), what);
+#else
+			CheckLink(B_NOT_SUPPORTED);
+			return;
+#endif
 
 		case radeonBufferDup: {
 			uint32_t dstHandle;
