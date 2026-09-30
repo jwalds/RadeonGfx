@@ -8,7 +8,7 @@ The `polaris` branch adds support for Polaris (GFX8, e.g. Radeon RX 460/560),
 working together with the patched `radeon_hd` display driver from
 [jwalds/haiku-radeon-polaris](https://github.com/jwalds/haiku-radeon-polaris).
 The plan and test log live in that repository
-(`docs/phase2-3d-plan.md`).
+(`docs/phase3-plan.md`).
 
 **Status:** early development, nothing works on Polaris yet.
 
