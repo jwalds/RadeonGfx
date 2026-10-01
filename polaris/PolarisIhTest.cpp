@@ -88,6 +88,14 @@ PolarisIhTest()
 	}
 	bigtime_t elapsed = system_time() - start;
 
+	printf("before disabling:\n");
+	printf("  DISP_INTERRUPT_STATUS %#010" B_PRIx32 ", LB_VBLANK_STATUS %#010"
+		B_PRIx32 ", LB_INTERRUPT_MASK %#010" B_PRIx32 "\n",
+		ReadReg4AmdGpu(mmDISP_INTERRUPT_STATUS),
+		ReadReg4AmdGpu(mmLB_VBLANK_STATUS),
+		ReadReg4AmdGpu(mmLB_INTERRUPT_MASK));
+	ring.PrintState();
+
 	WriteReg4AmdGpu(mmLB_INTERRUPT_MASK, savedMask);
 	WriteReg4AmdGpu(mmLB_VBLANK_STATUS, LB_VBLANK_STATUS__VBLANK_ACK_MASK);
 	snooze(50000);

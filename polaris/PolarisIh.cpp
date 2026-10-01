@@ -183,3 +183,18 @@ PolarisIhRing::Poll(Handler handler, void *cookie)
 		WriteReg4AmdGpu(mmIH_RB_RPTR, fRptr);
 	return count;
 }
+
+
+void
+PolarisIhRing::PrintState()
+{
+	printf("  IH_RB_CNTL %#010" B_PRIx32 ", IH_RB_BASE %#010" B_PRIx32
+		", IH_RB_RPTR %#" B_PRIx32 ", IH_RB_WPTR %#" B_PRIx32
+		", wptr in memory %#" B_PRIx32 "\n", ReadReg4AmdGpu(mmIH_RB_CNTL),
+		ReadReg4AmdGpu(mmIH_RB_BASE), ReadReg4AmdGpu(mmIH_RB_RPTR),
+		ReadReg4AmdGpu(mmIH_RB_WPTR), *(volatile uint32*)fWptr.adr);
+	printf("  IH_STATUS %#010" B_PRIx32 ", IH_CNTL %#010" B_PRIx32
+		", INTERRUPT_CNTL %#010" B_PRIx32 ", first ring dword %#010" B_PRIx32
+		"\n", ReadReg4AmdGpu(mmIH_STATUS), ReadReg4AmdGpu(mmIH_CNTL),
+		ReadReg4AmdGpu(mmINTERRUPT_CNTL), *(volatile uint32*)fRing.adr);
+}

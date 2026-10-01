@@ -28,6 +28,7 @@ public:
 	// handles all pending vectors, returns how many
 	uint32 Poll(Handler handler, void *cookie);
 	bool Overflowed() {return fOverflowed;}
+	void PrintState();
 
 private:
 	MappedBuffer fRing;
