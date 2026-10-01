@@ -6,6 +6,7 @@
 #include "PolarisSdmaTest.h"
 #include "PolarisSdma.h"
 #include "PolarisIh.h"
+#include "PolarisSmu.h"
 #include "RenderDevice.h"
 #include "RadeonDevice.h"
 #include "Radeon.h"
@@ -35,7 +36,8 @@ FirmwarePath(BPath &path, const char *name)
 		CheckRet(path.SetTo(info.name));
 		CheckRet(path.GetParent(&path));
 		CheckRet(path.GetParent(&path));
-		return path.Append(BString("firmware/") << name);
+		CheckRet(path.Append("firmware"));
+		return name[0] != '\0' ? path.Append(name) : B_OK;
 	}
 	return B_ENTRY_NOT_FOUND;
 }
@@ -261,16 +263,37 @@ PolarisSdmaTest()
 	printf("Device:    %s (registers writable)\n", path.String());
 	CheckRet(gDevice.MemMgr().Switch()->InitPolaris());
 
-	BPath firmware;
-	CheckRet(FirmwarePath(firmware, "polaris11_sdma.bin"));
+	BPath firmwareDir;
+	CheckRet(FirmwarePath(firmwareDir, ""));
+	BPath smcFirmware(firmwareDir.Path(), "polaris11_smc.bin");
 
 	status = gDevice.MemMgr().Switch()->InitGartPolaris();
 	PolarisIhRing ih;
 	PolarisSdma sdma;
 	if (status >= B_OK)
 		status = ih.Init();
+
+	// the SMU loads the SDMA firmware (direct loading is locked)
+	PolarisSmu smu;
+	printf("SMU before: ");
+	smu.PrintState();
+	if (status >= B_OK && !smu.IsFirmwareRunning())
+		status = smu.Start(smcFirmware.Path());
+	else if (status >= B_OK)
+		printf("SMU:       firmware already running\n");
+	if (status >= B_OK) {
+		static const PolarisSmu::Ucode kUcodes[] = {
+			{UCODE_ID_SDMA0, "polaris11_sdma.bin"},
+			{UCODE_ID_SDMA1, "polaris11_sdma1.bin"},
+		};
+		status = smu.LoadUcodes(firmwareDir.Path(), kUcodes,
+			B_COUNT_OF(kUcodes));
+	}
+	printf("SMU after: ");
+	smu.PrintState();
+
 	if (status >= B_OK)
-		status = sdma.Init(firmware.Path());
+		status = sdma.Init(NULL);
 	if (status >= B_OK)
 		status = RunTests(sdma, ih);
 	else

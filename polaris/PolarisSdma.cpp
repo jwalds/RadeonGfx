@@ -139,33 +139,39 @@ PolarisSdma::Init(const char *firmwarePath)
 	if (!gDevice.RegsWritable())
 		return B_NOT_ALLOWED;
 
-	// *** firmware file
-	BFile file(firmwarePath, B_READ_ONLY);
-	CheckRet(file.InitCheck());
-	off_t fileSize;
-	CheckRet(file.GetSize(&fileSize));
-	if (fileSize < (off_t)sizeof(sdma_firmware_header_v1_0)
-		|| fileSize > 1024 * 1024)
-		return B_BAD_DATA;
-	ArrayDeleter<uint8> data(new(std::nothrow) uint8[fileSize]);
-	if (!data.IsSet())
-		return B_NO_MEMORY;
-	if (file.ReadAt(0, data.Get(), fileSize) != fileSize)
-		return B_IO_ERROR;
-	const sdma_firmware_header_v1_0 &header
-		= *(const sdma_firmware_header_v1_0*)data.Get();
-	if (header.header.size_bytes != fileSize
-		|| header.header.ucode_array_offset_bytes
-			+ header.header.ucode_size_bytes > fileSize
-		|| header.header.ip_version_major != 3
-		|| header.header.ucode_size_bytes % 4 != 0) {
-		printf("[!] unexpected SDMA firmware header\n");
-		return B_BAD_DATA;
+	// *** firmware file, only for direct loading (firmwarePath != NULL);
+	// on Polaris the SMU loads it (see PolarisSmu::LoadUcodes())
+	ArrayDeleter<uint8> data;
+	const uint32 *ucode = NULL;
+	uint32 ucodeDwords = 0;
+	if (firmwarePath != NULL) {
+		BFile file(firmwarePath, B_READ_ONLY);
+		CheckRet(file.InitCheck());
+		off_t fileSize;
+		CheckRet(file.GetSize(&fileSize));
+		if (fileSize < (off_t)sizeof(sdma_firmware_header_v1_0)
+			|| fileSize > 1024 * 1024)
+			return B_BAD_DATA;
+		data.SetTo(new(std::nothrow) uint8[fileSize]);
+		if (!data.IsSet())
+			return B_NO_MEMORY;
+		if (file.ReadAt(0, data.Get(), fileSize) != fileSize)
+			return B_IO_ERROR;
+		const sdma_firmware_header_v1_0 &header
+			= *(const sdma_firmware_header_v1_0*)data.Get();
+		if (header.header.size_bytes != fileSize
+			|| header.header.ucode_array_offset_bytes
+				+ header.header.ucode_size_bytes > fileSize
+			|| header.header.ip_version_major != 3
+			|| header.header.ucode_size_bytes % 4 != 0) {
+			printf("[!] unexpected SDMA firmware header\n");
+			return B_BAD_DATA;
+		}
+		fFirmwareVersion = header.header.ucode_version;
+		ucode = (const uint32*)(data.Get()
+			+ header.header.ucode_array_offset_bytes);
+		ucodeDwords = header.header.ucode_size_bytes / 4;
 	}
-	fFirmwareVersion = header.header.ucode_version;
-	const uint32 *ucode = (const uint32*)(data.Get()
-		+ header.header.ucode_array_offset_bytes);
-	uint32 ucodeDwords = header.header.ucode_size_bytes / 4;
 
 	// *** ring and read pointer write-back in VRAM
 	auto memMgr = gDevice.MemMgr().Switch();
@@ -196,13 +202,16 @@ PolarisSdma::Init(const char *firmwarePath)
 	WriteReg4AmdGpu(mmSDMA0_CNTL, value);
 	Halt();
 
-	// *** sdma_v3_0_load_microcode() (Linux 4.7, direct loading)
-	WriteReg4AmdGpu(mmSDMA0_UCODE_ADDR, 0);
-	for (uint32 i = 0; i < ucodeDwords; i++)
-		WriteReg4AmdGpu(mmSDMA0_UCODE_DATA, ucode[i]);
-	WriteReg4AmdGpu(mmSDMA0_UCODE_ADDR, fFirmwareVersion);
-	printf("SDMA0:     firmware %#" B_PRIx32 " (%" B_PRIu32 " dwords) loaded\n",
-		fFirmwareVersion, ucodeDwords);
+	// *** sdma_v3_0_load_microcode() (Linux 4.7, direct loading); this
+	// is ignored on Polaris
+	if (ucode != NULL) {
+		WriteReg4AmdGpu(mmSDMA0_UCODE_ADDR, 0);
+		for (uint32 i = 0; i < ucodeDwords; i++)
+			WriteReg4AmdGpu(mmSDMA0_UCODE_DATA, ucode[i]);
+		WriteReg4AmdGpu(mmSDMA0_UCODE_ADDR, fFirmwareVersion);
+		printf("SDMA0:     firmware %#" B_PRIx32 " (%" B_PRIu32
+			" dwords) written directly\n", fFirmwareVersion, ucodeDwords);
+	}
 
 	// *** sdma_v3_0_gfx_resume(), engine 0
 	for (uint32 vmid = 0; vmid < 16; vmid++) {

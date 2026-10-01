@@ -11,6 +11,8 @@ public:
 	PolarisSdma();
 	~PolarisSdma();
 
+	// firmwarePath: load directly (locked on Polaris); NULL: the SMU has
+	// loaded the firmware
 	status_t Init(const char *firmwarePath);
 	void Fini();
 
