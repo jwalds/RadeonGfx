@@ -237,6 +237,7 @@ RunTests(PolarisGfx &gfx, PolarisIhRing &ih)
 	if (!ok)
 		return B_ERROR;
 
+	gfx.SetupShaderMemory();
 	return RunComputeTest(gfx, system.buf->gpuPhysAdr + 32, systemWords + 8);
 }
 

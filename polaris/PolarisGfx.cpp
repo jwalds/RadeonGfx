@@ -225,23 +225,8 @@ PolarisGfx::Init()
 		WriteReg4AmdGpu(kGoldenSettings[i], value);
 	}
 
-	// *** gfx_v8_0_constants_init(): shader memory for VMID 0
-	uint32 value = SET_FIELD(0, SH_STATIC_MEM_CONFIG, SWIZZLE_ENABLE, 1);
-	value = SET_FIELD(value, SH_STATIC_MEM_CONFIG, ELEMENT_SIZE, 1);
-	value = SET_FIELD(value, SH_STATIC_MEM_CONFIG, INDEX_STRIDE, 3);
-	WriteReg4AmdGpu(mmSH_STATIC_MEM_CONFIG, value);
-	WriteReg4AmdGpu(mmSRBM_GFX_CNTL, 0);
-	value = SET_FIELD(0, SH_MEM_CONFIG, DEFAULT_MTYPE, kMtypeUc);
-	value = SET_FIELD(value, SH_MEM_CONFIG, APE1_MTYPE, kMtypeUc);
-	value = SET_FIELD(value, SH_MEM_CONFIG, ALIGNMENT_MODE,
-		kShMemAlignmentModeUnaligned);
-	WriteReg4AmdGpu(mmSH_MEM_CONFIG, value);
-	WriteReg4AmdGpu(mmSH_MEM_BASES, 0);
-	WriteReg4AmdGpu(mmSH_MEM_APE1_BASE, 1);
-	WriteReg4AmdGpu(mmSH_MEM_APE1_LIMIT, 0);
-
 	// *** gfx_v8_0_rlc_resume(): stop, reset, start (no power gating)
-	value = ReadReg4AmdGpu(mmRLC_CNTL);
+	uint32 value = ReadReg4AmdGpu(mmRLC_CNTL);
 	WriteReg4AmdGpu(mmRLC_CNTL, SET_FIELD(value, RLC_CNTL, RLC_ENABLE_F32, 0));
 	WaitForRlcSerdes();
 	value = ReadReg4AmdGpu(mmGRBM_SOFT_RESET);
@@ -512,4 +497,25 @@ PolarisGfx::EmitCsPartialFlush()
 {
 	Write(PACKET3(PACKET3_EVENT_WRITE, 0));
 	Write(EVENT_TYPE(CS_PARTIAL_FLUSH) | EVENT_INDEX(4));
+}
+
+
+void
+PolarisGfx::SetupShaderMemory()
+{
+	// *** gfx_v8_0_constants_init(): shader memory for VMID 0
+	uint32 value = SET_FIELD(0, SH_STATIC_MEM_CONFIG, SWIZZLE_ENABLE, 1);
+	value = SET_FIELD(value, SH_STATIC_MEM_CONFIG, ELEMENT_SIZE, 1);
+	value = SET_FIELD(value, SH_STATIC_MEM_CONFIG, INDEX_STRIDE, 3);
+	WriteReg4AmdGpu(mmSH_STATIC_MEM_CONFIG, value);
+	WriteReg4AmdGpu(mmSRBM_GFX_CNTL, 0);
+	value = SET_FIELD(0, SH_MEM_CONFIG, DEFAULT_MTYPE, kMtypeUc);
+	value = SET_FIELD(value, SH_MEM_CONFIG, APE1_MTYPE, kMtypeUc);
+	value = SET_FIELD(value, SH_MEM_CONFIG, ALIGNMENT_MODE,
+		kShMemAlignmentModeUnaligned);
+	WriteReg4AmdGpu(mmSH_MEM_CONFIG, value);
+	WriteReg4AmdGpu(mmSH_MEM_BASES, 0);
+	WriteReg4AmdGpu(mmSH_MEM_APE1_BASE, 1);
+	WriteReg4AmdGpu(mmSH_MEM_APE1_LIMIT, 0);
+
 }

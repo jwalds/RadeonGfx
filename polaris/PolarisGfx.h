@@ -20,6 +20,8 @@ public:
 	void PrintState();
 
 	void EnableEopInterrupt(bool enable);
+	// gfx_v8_0_constants_init(): shader memory configuration for VMID 0
+	void SetupShaderMemory();
 
 	// packets
 	void EmitSetUconfigReg(uint32 reg, uint32 value);
