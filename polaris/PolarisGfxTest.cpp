@@ -135,6 +135,8 @@ Dispatch(PolarisGfx &gfx, const char *name, uint64 shaderAddress,
 	gfx.EmitSetComputeReg(mmCOMPUTE_STATIC_THREAD_MGMT_SE0, cuMask, 2);
 	gfx.EmitSetComputeReg(mmCOMPUTE_STATIC_THREAD_MGMT_SE2, cuMask, 2);
 	gfx.EmitSetComputeReg(mmCOMPUTE_TMPRING_SIZE, 0);
+	// the waves ran in VMID 9 without this (VM context 1 fault status)
+	gfx.EmitSetComputeReg(mmCOMPUTE_VMID, 0);
 	gfx.EmitSetComputeReg(mmCOMPUTE_USER_DATA_0, descriptor, 4);
 	gfx.EmitDispatch(groups, 1, 1);
 	gfx.EmitCsPartialFlush();
@@ -297,8 +299,10 @@ RunComputeTest(PolarisGfx &gfx, uint64 fenceAddress,
 		"store to VRAM");
 	printf("4b. buffer_store shader -> VRAM, %" B_PRIu32 " values: %s\n",
 		kCount, ok ? "OK" : "[!] FAILED");
-	if (!ok)
+	if (!ok) {
+		gfx.PrintVmFaults();
 		return B_ERROR;
+	}
 
 	// 4c. stores to system memory through the GART, with no dirty CPU cache
 	// lines for the output, so that a non-snooped GPU write is not lost
