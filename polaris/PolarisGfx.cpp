@@ -9,6 +9,9 @@
 
 #include "vi/gfx_8_0_d.h"
 #include "vi/oss_3_0_d.h"
+#include "vi/oss_3_0_sh_mask.h"
+#include "vi/gmc_8_1_d.h"
+#include "vi/gmc_8_1_sh_mask.h"
 #include "vi/gfx_8_0_sh_mask.h"
 #include "vi/vid.h"
 #include "vi/clearstate_vi.h"
@@ -112,6 +115,48 @@ HaltCp()
 
 
 static void
+SoftReset()
+{
+	// gfx_v8_0_soft_reset(): reset RLC, GFX and the CP parts so a restart
+	// doesn't see state from an earlier run; the firmware stays loaded
+	const uint32 grbmReset = GRBM_SOFT_RESET__SOFT_RESET_RLC_MASK
+		| GRBM_SOFT_RESET__SOFT_RESET_GFX_MASK
+		| GRBM_SOFT_RESET__SOFT_RESET_CP_MASK
+		| GRBM_SOFT_RESET__SOFT_RESET_CPF_MASK
+		| GRBM_SOFT_RESET__SOFT_RESET_CPC_MASK
+		| GRBM_SOFT_RESET__SOFT_RESET_CPG_MASK;
+	const uint32 srbmReset = SRBM_SOFT_RESET__SOFT_RESET_GRBM_MASK
+		| SRBM_SOFT_RESET__SOFT_RESET_SEM_MASK;
+
+	uint32 value = ReadReg4AmdGpu(mmGMCON_DEBUG);
+	WriteReg4AmdGpu(mmGMCON_DEBUG, value | GMCON_DEBUG__GFX_STALL_MASK
+		| GMCON_DEBUG__GFX_CLEAR_MASK);
+	snooze(100);
+
+	value = ReadReg4AmdGpu(mmGRBM_SOFT_RESET);
+	WriteReg4AmdGpu(mmGRBM_SOFT_RESET, value | grbmReset);
+	ReadReg4AmdGpu(mmGRBM_SOFT_RESET);
+	snooze(100);
+	WriteReg4AmdGpu(mmGRBM_SOFT_RESET, value & ~grbmReset);
+	ReadReg4AmdGpu(mmGRBM_SOFT_RESET);
+	snooze(100);
+
+	value = ReadReg4AmdGpu(mmSRBM_SOFT_RESET);
+	WriteReg4AmdGpu(mmSRBM_SOFT_RESET, value | srbmReset);
+	ReadReg4AmdGpu(mmSRBM_SOFT_RESET);
+	snooze(100);
+	WriteReg4AmdGpu(mmSRBM_SOFT_RESET, value & ~srbmReset);
+	ReadReg4AmdGpu(mmSRBM_SOFT_RESET);
+	snooze(100);
+
+	value = ReadReg4AmdGpu(mmGMCON_DEBUG);
+	WriteReg4AmdGpu(mmGMCON_DEBUG, value & ~(GMCON_DEBUG__GFX_STALL_MASK
+		| GMCON_DEBUG__GFX_CLEAR_MASK));
+	snooze(100);
+}
+
+
+static void
 WaitForRlcSerdes()
 {
 	// gfx_v8_0_wait_for_rlc_serdes(), with the broadcast index
@@ -166,6 +211,7 @@ PolarisGfx::Init()
 	fRegistersSaved = true;
 
 	HaltCp();
+	SoftReset();
 
 	// *** gfx_v8_0_init_golden_registers()
 	for (uint32 i = 0; i < B_COUNT_OF(kGoldenSettings); i += 3) {
