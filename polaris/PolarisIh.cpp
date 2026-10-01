@@ -1,6 +1,7 @@
 #include "PolarisIh.h"
 #include "RadeonDevice.h"
 #include "Radeon.h"
+#include "Poke.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -40,6 +41,7 @@ OrderBase2(uint32 value)
 
 
 PolarisIhRing::PolarisIhRing():
+	fRing(NULL), fWptr(NULL), fRingPhys(0), fWptrPhys(0),
 	fRingSize(0), fRptr(0), fOverflowed(false), fEnabled(false)
 {
 }
@@ -57,20 +59,22 @@ PolarisIhRing::Init(uint32 ringSize)
 	if (!gDevice.RegsWritable())
 		return B_NOT_ALLOWED;
 
-	// The ring and write pointer are in system memory, mapped through the
-	// GART (VM context 0), as in Linux: the GPU needs the system aperture
-	// to reach VRAM, and the CPU would read VRAM through the HDP cache.
-	auto memMgr = gDevice.MemMgr().Switch();
-	if (!memMgr->GartEnabled()) {
-		printf("[!] the IH ring needs the GART\n");
-		return B_NO_INIT;
-	}
-	fRing.SetTo(memMgr->Alloc(boDomainGtt, ringSize, ringSize));
-	fWptr.SetTo(memMgr->Alloc(boDomainGtt, B_PAGE_SIZE));
-	if (fRing.adr == NULL || fWptr.adr == NULL)
-		return B_NO_MEMORY;
-	memset(fRing.adr, 0, ringSize);
-	memset(fWptr.adr, 0, B_PAGE_SIZE);
+	void *address = NULL;
+	fArea.SetTo(create_area("polaris IH ring", &address, B_ANY_ADDRESS,
+		ringSize + B_PAGE_SIZE, B_CONTIGUOUS, B_READ_AREA | B_WRITE_AREA));
+	if (!fArea.IsSet())
+		return fArea.Get();
+	memset(address, 0, ringSize + B_PAGE_SIZE);
+	fRing = (volatile uint32*)address;
+	fWptr = (volatile uint32*)((uint8*)address + ringSize);
+	uint64 physical;
+	if (gPoke.GetPhysicalAddress(physical, address, B_PAGE_SIZE) < B_OK)
+		return B_ERROR;
+	fRingPhys = physical;
+	fWptrPhys = physical + ringSize;
+	if (fRingPhys % 256 != 0 || fWptrPhys + 4 > (1ULL << 40))
+		return B_BAD_ADDRESS;
+
 	fRingSize = ringSize;
 	fRptr = 0;
 	fOverflowed = false;
@@ -87,15 +91,15 @@ PolarisIhRing::Init(uint32 ringSize)
 	WriteReg4AmdGpu(mmIH_RB_WPTR, 0);
 
 	// tonga_ih_irq_init(), ring in VRAM
-	WriteReg4AmdGpu(mmINTERRUPT_CNTL2,
-		memMgr->fDummyPage->gpuPhysAdr >> 8);
+	// dummy read address: a bus address as well (Linux: dummy page)
+	WriteReg4AmdGpu(mmINTERRUPT_CNTL2, fWptrPhys >> 8);
 	value = ReadReg4AmdGpu(mmINTERRUPT_CNTL);
 	value = SET_FIELD(value, INTERRUPT_CNTL, IH_DUMMY_RD_OVERRIDE, 0);
 	// the ring is in cacheable (snooped) system memory
 	value = SET_FIELD(value, INTERRUPT_CNTL, IH_REQ_NONSNOOP_EN, 0);
 	WriteReg4AmdGpu(mmINTERRUPT_CNTL, value);
 
-	WriteReg4AmdGpu(mmIH_RB_BASE, fRing.buf->gpuPhysAdr >> 8);
+	WriteReg4AmdGpu(mmIH_RB_BASE, fRingPhys >> 8);
 
 	value = SET_FIELD(0, IH_RB_CNTL, WPTR_OVERFLOW_CLEAR, 1);
 	value = SET_FIELD(value, IH_RB_CNTL, RB_SIZE, OrderBase2(ringSize / 4));
@@ -103,9 +107,8 @@ PolarisIhRing::Init(uint32 ringSize)
 	value = SET_FIELD(value, IH_RB_CNTL, MC_VMID, 0);
 	WriteReg4AmdGpu(mmIH_RB_CNTL, value);
 
-	WriteReg4AmdGpu(mmIH_RB_WPTR_ADDR_LO, (uint32)fWptr.buf->gpuPhysAdr);
-	WriteReg4AmdGpu(mmIH_RB_WPTR_ADDR_HI,
-		(uint32)(fWptr.buf->gpuPhysAdr >> 32) & 0xff);
+	WriteReg4AmdGpu(mmIH_RB_WPTR_ADDR_LO, (uint32)fWptrPhys);
+	WriteReg4AmdGpu(mmIH_RB_WPTR_ADDR_HI, (uint32)(fWptrPhys >> 32) & 0xff);
 	WriteReg4AmdGpu(mmIH_RB_RPTR, 0);
 	WriteReg4AmdGpu(mmIH_RB_WPTR, 0);
 
@@ -121,8 +124,8 @@ PolarisIhRing::Init(uint32 ringSize)
 	fEnabled = true;
 
 	printf("IH ring:   %" B_PRIu32 " KB at %#" B_PRIx64 ", wptr at %#"
-		B_PRIx64 " (GART), polled (CPU interrupt off)\n", ringSize / 1024,
-		fRing.buf->gpuPhysAdr, fWptr.buf->gpuPhysAdr);
+		B_PRIx64 " (bus addresses), polled (CPU interrupt off)\n", ringSize / 1024,
+		fRingPhys, fWptrPhys);
 	return B_OK;
 }
 
@@ -144,9 +147,9 @@ PolarisIhRing::Fini()
 		WriteReg4AmdGpu(kSavedRegisters[i], sSavedValues[i]);
 	fEnabled = false;
 
-	// unmap from the GART while it's still enabled
-	fRing.SetTo(NULL);
-	fWptr.SetTo(NULL);
+	fArea.Unset();
+	fRing = NULL;
+	fWptr = NULL;
 }
 
 
@@ -157,7 +160,7 @@ PolarisIhRing::Poll(Handler handler, void *cookie)
 		return 0;
 
 	uint32 mask = fRingSize - 1;
-	uint32 wptr = *(volatile uint32*)fWptr.adr;
+	uint32 wptr = *fWptr;
 	if ((wptr & IH_RB_WPTR__RB_OVERFLOW_MASK) != 0) {
 		// tonga_ih_get_wptr(): continue after the oldest vector that is
 		// still intact, then clear the overflow
@@ -173,7 +176,7 @@ PolarisIhRing::Poll(Handler handler, void *cookie)
 	wptr &= mask;
 
 	uint32 count = 0;
-	const volatile uint32 *ring = (const volatile uint32*)fRing.adr;
+	const volatile uint32 *ring = fRing;
 	while (fRptr != wptr) {
 		uint32 index = fRptr / 4;
 		Entry entry;
@@ -203,9 +206,9 @@ PolarisIhRing::PrintState()
 		", IH_RB_RPTR %#" B_PRIx32 ", IH_RB_WPTR %#" B_PRIx32
 		", wptr in memory %#" B_PRIx32 "\n", ReadReg4AmdGpu(mmIH_RB_CNTL),
 		ReadReg4AmdGpu(mmIH_RB_BASE), ReadReg4AmdGpu(mmIH_RB_RPTR),
-		ReadReg4AmdGpu(mmIH_RB_WPTR), *(volatile uint32*)fWptr.adr);
+		ReadReg4AmdGpu(mmIH_RB_WPTR), fWptr != NULL ? *fWptr : 0);
 	printf("  IH_STATUS %#010" B_PRIx32 ", IH_CNTL %#010" B_PRIx32
 		", INTERRUPT_CNTL %#010" B_PRIx32 ", first ring dword %#010" B_PRIx32
 		"\n", ReadReg4AmdGpu(mmIH_STATUS), ReadReg4AmdGpu(mmIH_CNTL),
-		ReadReg4AmdGpu(mmINTERRUPT_CNTL), *(volatile uint32*)fRing.adr);
+		ReadReg4AmdGpu(mmINTERRUPT_CNTL), fRing != NULL ? fRing[0] : 0);
 }
