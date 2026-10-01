@@ -16,6 +16,7 @@
 #include "PolarisMemTest.h"
 #include "PolarisGartTest.h"
 #include "PolarisIhTest.h"
+#include "PolarisSdmaTest.h"
 
 #define CheckRet(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
@@ -70,11 +71,13 @@ int main(int argc, char** argv)
 		return PolarisGartTest() < B_OK ? 1 : 0;
 	if (argc >= 2 && strcmp(argv[1], "ihtest") == 0)
 		return PolarisIhTest() < B_OK ? 1 : 0;
+	if (argc >= 2 && strcmp(argv[1], "sdmatest") == 0)
+		return PolarisSdmaTest() < B_OK ? 1 : 0;
 
 	// The server and test modes still contain Southern Islands (GFX6)
 	// initialization, which must not run on Polaris (GFX8).
 	if (argc < 3 || strcmp(argv[argc - 1], "--si") != 0) {
-		fprintf(stderr, "Only \"%s info|memtest|garttest|ihtest\" is supported on Polaris yet "
+		fprintf(stderr, "Only \"%s info|memtest|garttest|ihtest|sdmatest\" is supported on Polaris yet "
 			"(add --si to run the Southern Islands code).\n", argv[0]);
 		return 1;
 	}
