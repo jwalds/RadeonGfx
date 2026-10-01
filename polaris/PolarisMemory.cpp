@@ -27,8 +27,9 @@ static const uint32 kCrtcOffsets[] = {
 	0x0000, 0x0200, 0x0400, 0x2600, 0x2800, 0x2a00
 };
 
-#define GRPH_ENABLE__GRPH_ENABLE_MASK	0x1
-#define CUR_CONTROL__CURSOR_EN_MASK		0x1
+#define CRTC_CONTROL__CRTC_MASTER_EN_MASK	0x1
+#define GRPH_ENABLE__GRPH_ENABLE_MASK		0x1
+#define CUR_CONTROL__CURSOR_EN_MASK			0x1
 
 
 static bool
@@ -116,6 +117,11 @@ MemoryManager::ReserveDisplayMemory()
 	bool ok = true;
 	for (uint32 crtc = 0; crtc < B_COUNT_OF(kCrtcOffsets); crtc++) {
 		uint32 offset = kCrtcOffsets[crtc];
+		// the VBIOS leaves the graphics surface enabled (at address 0) on
+		// controllers that don't run; only running ones scan out memory
+		if ((ReadReg4AmdGpu(mmCRTC_CONTROL + offset)
+				& CRTC_CONTROL__CRTC_MASTER_EN_MASK) == 0)
+			continue;
 		if ((ReadReg4AmdGpu(mmGRPH_ENABLE + offset)
 				& GRPH_ENABLE__GRPH_ENABLE_MASK) != 0) {
 			uint64 address = ReadReg4AmdGpu(mmGRPH_PRIMARY_SURFACE_ADDRESS + offset)
