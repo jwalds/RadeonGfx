@@ -78,7 +78,7 @@ static const uint32 kSavedRegisters[] = {
 	mmCP_RB0_RPTR_ADDR_HI, mmCP_RB_WPTR_POLL_ADDR_LO,
 	mmCP_RB_WPTR_POLL_ADDR_HI, mmCP_RB0_BASE, mmCP_RB0_BASE_HI,
 	mmCP_RB_DOORBELL_CONTROL, mmCP_MAX_CONTEXT, mmCP_ENDIAN_SWAP,
-	mmCP_DEVICE_ID, mmCP_INT_CNTL_RING0, mmCP_RB0_CNTL,
+	mmCP_DEVICE_ID, mmCP_RB0_CNTL,
 	// shader memory (VMID 0, SRBM_GFX_CNTL selects VMID 0)
 	mmSH_STATIC_MEM_CONFIG, mmSH_MEM_CONFIG, mmSH_MEM_BASES,
 	mmSH_MEM_APE1_BASE, mmSH_MEM_APE1_LIMIT,
@@ -210,6 +210,10 @@ PolarisGfx::Init()
 		sSavedValues[i] = ReadReg4AmdGpu(kSavedRegisters[i]);
 	fRegistersSaved = true;
 
+	// gfx_v8_0_enable_gui_idle_interrupt(false), and the EOP interrupt off:
+	// a CP interrupt the IH doesn't take (ring disabled) stays pending and
+	// keeps the CP busy (CPF_STATUS INTERRUPT_BUSY), also after a reset
+	WriteReg4AmdGpu(mmCP_INT_CNTL_RING0, 0);
 	HaltCp();
 	SoftReset();
 
@@ -344,6 +348,9 @@ PolarisGfx::Fini()
 	if (!fRegistersSaved)
 		return;
 
+	// no CP interrupts once the IH is gone (the VBIOS value 0x003c0000
+	// enables the GUI busy/idle interrupts)
+	WriteReg4AmdGpu(mmCP_INT_CNTL_RING0, 0);
 	HaltCp();
 	uint32 value = ReadReg4AmdGpu(mmRLC_CNTL);
 	WriteReg4AmdGpu(mmRLC_CNTL, SET_FIELD(value, RLC_CNTL, RLC_ENABLE_F32, 0));
@@ -423,6 +430,9 @@ PolarisGfx::PrintState()
 		ReadReg4AmdGpu(mmCP_STALLED_STAT1), ReadReg4AmdGpu(mmCP_STALLED_STAT2),
 		ReadReg4AmdGpu(mmCP_STALLED_STAT3), ReadReg4AmdGpu(mmCP_ME_HEADER_DUMP),
 		ReadReg4AmdGpu(mmCP_PFP_HEADER_DUMP));
+	printf("  CP_CPF_STATUS %#010" B_PRIx32 ", CP_INT_CNTL_RING0 %#010" B_PRIx32
+		"\n", ReadReg4AmdGpu(mmCP_CPF_STATUS),
+		ReadReg4AmdGpu(mmCP_INT_CNTL_RING0));
 	printf("  CP_ME_CNTL %#010" B_PRIx32 ", CP_RB0_RPTR %#" B_PRIx32
 		", our wptr %#" B_PRIx32 ", RLC_CNTL %#" B_PRIx32 ", RLC_STAT %#"
 		B_PRIx32 ", RLC_GPM_STAT %#" B_PRIx32 "\n",
