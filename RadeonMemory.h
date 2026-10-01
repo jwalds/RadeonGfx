@@ -130,6 +130,7 @@ private:
 	friend class AddressSpace;
 
 	bool fGartEnabled;
+	bool fGartRegistersSaved = false;
 	MappedBuffer fGartPageTable;
 
 	BitfieldAllocator fVmidPool;
@@ -165,6 +166,9 @@ public:
 	status_t Init();
 	status_t InitPolaris();
 	status_t InitGart();
+	status_t InitGartPolaris();
+	void FiniGartPolaris();
+	MappedBuffer &GartPageTable() {return fGartPageTable;}
 
 	status_t AllocWriteback(uint64 &gpuAdr, void *&cpuAdr, uint64 size);
 	void FreeWriteback(uint64 gpuAdr);
