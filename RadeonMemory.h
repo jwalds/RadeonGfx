@@ -142,6 +142,11 @@ public:
 	BReference<BufferObject> fDummyPage;
 	BReference<BufferObject> fVramScratch;
 private:
+	// VRAM used by the radeon_hd display driver (Polaris)
+	BReference<BufferObject> fDisplayFront;
+	BReference<BufferObject> fDisplayCursor;
+	status_t ReserveDisplayMemory();
+
 	status_t GartMap(BReference<BufferObject> buffer);
 	status_t GartUnmap(BufferObject *buffer);
 	void GartFlushTlb();
@@ -158,6 +163,7 @@ public:
 	status_t GetUsage(uint64 &total, uint64 &alloc, MemoryDomain domain);
 
 	status_t Init();
+	status_t InitPolaris();
 	status_t InitGart();
 
 	status_t AllocWriteback(uint64 &gpuAdr, void *&cpuAdr, uint64 size);

@@ -2,7 +2,7 @@
 // Only reads registers: no BIOS tables, no writes.
 
 #include "PolarisInfo.h"
-#include "RadeonHdGpuInfo.h"
+#include "RenderDevice.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -27,39 +27,6 @@
 
 #define FIELD(value, reg, field) \
 	(((value) & reg##__##field##_MASK) >> reg##__##field##__SHIFT)
-
-
-static status_t
-OpenRenderDevice(FileDescriptorCloser &fd, BString &path)
-{
-	const char *dirPath = "/dev/graphics";
-	DirCloser dir(opendir(dirPath));
-	if (!dir.IsSet())
-		return B_ENTRY_NOT_FOUND;
-
-	struct dirent *entry;
-	while ((entry = readdir(dir.Get())) != NULL) {
-		// only open our render nodes, opening other drivers has side effects
-		if (strncmp(entry->d_name, "radeon_hd_render_",
-				strlen("radeon_hd_render_")) != 0)
-			continue;
-		BString name;
-		name.SetToFormat("%s/%s", dirPath, entry->d_name);
-		FileDescriptorCloser deviceFd(open(name.String(), B_READ_WRITE));
-		if (!deviceFd.IsSet())
-			continue;
-		char signature[B_PATH_NAME_LENGTH];
-		if (ioctl(deviceFd.Get(), B_GET_ACCELERANT_SIGNATURE, signature,
-				sizeof(signature)) < B_OK)
-			continue;
-		if (strcmp(signature, RADEON_HD_RENDER_ACCELERANT_NAME) != 0)
-			continue;
-		fd.SetTo(deviceFd.Detach());
-		path = name;
-		return B_OK;
-	}
-	return B_ENTRY_NOT_FOUND;
-}
 
 
 class RegisterReader {
@@ -201,14 +168,9 @@ PolarisInfo()
 	}
 	printf("Device             %s\n", path.String());
 
-	radeon_hd_gpu_info info {};
-	info.magic = RADEON_HD_PRIVATE_DATA_MAGIC;
-	if (ioctl(fd.Get(), RADEON_HD_GET_GPU_INFO, &info, sizeof(info)) < B_OK) {
-		printf("RADEON_HD_GET_GPU_INFO failed\n");
-		return B_ERROR;
-	}
-	if (info.version != RADEON_HD_GPU_INFO_VERSION) {
-		printf("unknown GPU info version %" B_PRIu32 "\n", info.version);
+	radeon_hd_gpu_info info;
+	if (GetGpuInfo(fd.Get(), info) < B_OK) {
+		printf("RADEON_GET_GPU_INFO failed\n");
 		return B_ERROR;
 	}
 

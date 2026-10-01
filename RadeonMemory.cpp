@@ -298,13 +298,16 @@ status_t MemoryManager::Init()
 
 BReference<BufferObject> MemoryManager::Alloc(MemoryDomain domain, uint64 size, uint64 alignment, uint32 flags, area_id area, uint64 offset)
 {
-	(void)alignment;
 	(void)flags;
 	size = (size + B_PAGE_SIZE - 1) / B_PAGE_SIZE * B_PAGE_SIZE;
 	ExternalAllocator& pool = fDomainPools[domain];
 	//printf("  pool: %p\n", &pool);
 	uint64 gpuPhysAdr;
-	if (!pool.Alloc(gpuPhysAdr, size)) return NULL;
+	if (alignment > B_PAGE_SIZE) {
+		if (!pool.AllocAligned(gpuPhysAdr, size, alignment)) return NULL;
+	} else {
+		if (!pool.Alloc(gpuPhysAdr, size)) return NULL;
+	}
 	// printf("MemoryManager::Alloc(%#" B_PRIx64 ") -> %#" B_PRIx64 "\n", size, gpuPhysAdr);
 	BReference<BufferObject> buffer(new BufferObject(), true);
 	buffer->domain = domain;
@@ -354,7 +357,7 @@ status_t MemoryManager::CpuMap(void*& ptr, BReference<BufferObject> buffer, uint
 	if (!(offset + size <= buffer->size)) return B_BAD_VALUE;
 	switch (buffer->domain) {
 		case boDomainVramMappable: {
-			ptr = gDevice.SharedInfo()->frame_buffer + (buffer->gpuPhysAdr - fVramRange.beg) + offset;
+			ptr = gDevice.FrameBuffer() + (buffer->gpuPhysAdr - fVramRange.beg) + offset;
 			return B_OK;
 		}
 		case boDomainGtt: {

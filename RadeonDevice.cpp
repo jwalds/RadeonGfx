@@ -1,4 +1,5 @@
 #include "RadeonDevice.h"
+#include "RenderDevice.h"
 #include "Atombios.h"
 #include "RadeonMemory.h"
 #ifdef RADEONGFX_DISPLAY
@@ -60,9 +61,10 @@ RadeonDevice::RadeonDevice():
 
 RadeonDevice::~RadeonDevice()
 {
-	// The global device is destroyed at exit even if Init() never ran (e.g.
-	// "RadeonGfx info"); don't touch registers that were never mapped.
-	if (fRegs == NULL)
+	// The global device is destroyed at exit even if Init() never ran, or
+	// after InitPolaris(); only shut down what the Southern Islands Init()
+	// started.
+	if (!fSiInitialized)
 		return;
 
 	printf("-RadeonDevice\n");
@@ -106,6 +108,27 @@ status_t RadeonDevice::FiniUnits()
 
 #define DC_HPDx_INT_CONTROL(x)    (DC_HPD1_INT_CONTROL + (x * 0xc))
 
+status_t RadeonDevice::InitPolaris(int fd, bool writableRegisters)
+{
+	fFd.SetTo(dup(fd));
+	CheckRet(GetGpuInfo(fFd.Get(), fGpuInfo));
+
+	uint32 protection = B_READ_AREA | (writableRegisters ? B_WRITE_AREA : 0);
+	fRegsArea.SetTo(clone_area("radeon hd regs", (void**)&fRegs, B_ANY_ADDRESS,
+		protection, fGpuInfo.registers_area));
+	if (!fRegsArea.IsSet()) return fRegsArea.Get();
+	fRegsWritable = writableRegisters;
+
+	fFrameBufferArea.SetTo(clone_area("radeon hd frame buffer",
+		(void**)&fFrameBuffer, B_ANY_ADDRESS, B_READ_AREA | B_WRITE_AREA,
+		fGpuInfo.frame_buffer_area));
+	if (!fFrameBufferArea.IsSet()) return fFrameBufferArea.Get();
+
+	fIsPolaris = true;
+	return B_OK;
+}
+
+
 status_t RadeonDevice::Init(int fd)
 {
 	fFd.SetTo(dup(fd));
@@ -120,6 +143,8 @@ status_t RadeonDevice::Init(int fd)
 	if (!fSharedArea.IsSet()) return fSharedArea.Get();
 	fRegsArea.SetTo(clone_area("radeon hd regs", (void**)&fRegs, B_ANY_ADDRESS, B_READ_AREA | B_WRITE_AREA, fSharedInfo->registers_area));
 	if (!fRegsArea.IsSet()) return fRegsArea.Get();
+	fRegsWritable = true;
+	fFrameBuffer = fSharedInfo->frame_buffer;
 
 	printf("fSharedInfo->frame_buffer_size: %#" B_PRIx32 "\n", fSharedInfo->frame_buffer_size);
 
@@ -232,5 +257,6 @@ status_t RadeonDevice::Init(int fd)
 	CheckRet(fDisplays.Switch()->Init());
 #endif
 
+	fSiInitialized = true;
 	return B_OK;
 }

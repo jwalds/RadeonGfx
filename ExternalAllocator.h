@@ -78,7 +78,7 @@ private:
 
 	AVLTree<Block::AdrNodeDef> fAdrMap;
 	AVLTree<Block::SizeNodeDef> fSizeMap;
-	uint64_t fTotalSize, fAllocSize;
+	uint64_t fTotalSize = 0, fAllocSize = 0;
 
 public:
 	~ExternalAllocator();
