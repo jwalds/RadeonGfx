@@ -292,6 +292,7 @@ PolarisSmu::Start(const char *firmwarePath)
 
 	printf("SMU:       firmware running (PC %#" B_PRIx32 ")\n",
 		ReadIndirect(ixSMC_PC_C));
+	fStarted = true;
 	return B_OK;
 }
 
@@ -300,15 +301,16 @@ status_t
 PolarisSmu::LoadUcodes(const char *firmwareDir, const Ucode *ucodes,
 	uint32 count)
 {
-	if (count > SMU_MAX_ENTRIES)
+	if (count + 2 > SMU_MAX_ENTRIES)
 		return B_BAD_VALUE;
 
 	auto memMgr = gDevice.MemMgr().Switch();
 
-	// read all images first to size the buffer
+	// amdgpu_ucode_init_bo(): the images without their headers, page
+	// aligned; the MEC is followed by a copy of its jump table
 	ArrayDeleter<uint8> data[SMU_MAX_ENTRIES];
 	uint64 offsets[SMU_MAX_ENTRIES];
-	uint32 sizes[SMU_MAX_ENTRIES];
+	uint64 jtOffsets[SMU_MAX_ENTRIES];
 	uint64 total = 0;
 	for (uint32 i = 0; i < count; i++) {
 		BString path;
@@ -322,33 +324,34 @@ PolarisSmu::LoadUcodes(const char *firmwareDir, const Ucode *ucodes,
 		const common_firmware_header &header
 			= *(const common_firmware_header*)data[i].Get();
 		offsets[i] = total;
-		sizes[i] = header.ucode_size_bytes;
-		if (ucodes[i].id == UCODE_ID_CP_MEC) {
-			// amdgpu_cgs_get_firmware_info(): MEC without its jump table
-			uint32 jtOffset = *(const uint32*)(data[i].Get() + 36);
-			if (jtOffset != 0 && jtOffset * 4 <= sizes[i])
-				sizes[i] = jtOffset * 4;
-		}
 		total += (header.ucode_size_bytes + B_PAGE_SIZE - 1)
 			& ~(uint64)(B_PAGE_SIZE - 1);
+		jtOffsets[i] = 0;
+		if (ucodes[i].id == UCODE_ID_CP_MEC) {
+			uint32 jtSize = *(const uint32*)(data[i].Get() + 40) * 4;
+			jtOffsets[i] = total;
+			total += (jtSize + B_PAGE_SIZE - 1) & ~(uint64)(B_PAGE_SIZE - 1);
+		}
 	}
 
-	// amdgpu_ucode_init_bo(): the images without their headers, in VRAM
 	fImages.SetTo(memMgr->Alloc(boDomainVramMappable, total));
 	fTocBuffer.SetTo(memMgr->Alloc(boDomainVramMappable, B_PAGE_SIZE));
 	fSmuBuffer.SetTo(memMgr->Alloc(boDomainVramMappable, 200 * B_PAGE_SIZE));
 	if (fImages.adr == NULL || fTocBuffer.adr == NULL || fSmuBuffer.adr == NULL)
 		return B_NO_MEMORY;
+	memset(fImages.adr, 0, total);
 	memset(fSmuBuffer.adr, 0, fSmuBuffer.buf->size);
 
+	// smu7_request_smu_load_fw(): the TOC lists the MEC jump tables too,
+	// but they aren't in the load mask on Polaris
 	SMU_DRAMData_TOC toc = {};
 	toc.structure_version = 1;
 	uint32 mask = 0;
 	for (uint32 i = 0; i < count; i++) {
 		const common_firmware_header &header
 			= *(const common_firmware_header*)data[i].Get();
-		memcpy((uint8*)fImages.adr + offsets[i],
-			data[i].Get() + header.ucode_array_offset_bytes,
+		const uint8 *ucode = data[i].Get() + header.ucode_array_offset_bytes;
+		memcpy((uint8*)fImages.adr + offsets[i], ucode,
 			header.ucode_size_bytes);
 		uint64 address = fImages.buf->gpuPhysAdr + offsets[i];
 
@@ -358,10 +361,41 @@ PolarisSmu::LoadUcodes(const char *firmwareDir, const Ucode *ucodes,
 		entry.version = (uint16)header.ucode_version;
 		entry.image_addr_high = address >> 32;
 		entry.image_addr_low = (uint32)address;
-		entry.data_size_byte = sizes[i];
+		entry.data_size_byte = header.ucode_size_bytes;
 		entry.flags = (ucodes[i].id == UCODE_ID_RLC_G
 			|| ucodes[i].id == UCODE_ID_CP_MEC) ? 1 : 0;
 		mask |= 1u << ucodes[i].id;
+
+		if (ucodes[i].id == UCODE_ID_CP_MEC) {
+			// amdgpu_cgs_get_firmware_info(): MEC without the jump table,
+			// the jump table (amdgpu_ucode_patch_jt()) as JT1 and JT2
+			uint32 jtOffset = *(const uint32*)(data[i].Get() + 36) * 4;
+			uint32 jtSize = *(const uint32*)(data[i].Get() + 40) * 4;
+			if (jtOffset == 0 || jtOffset + jtSize > header.ucode_size_bytes)
+				return B_BAD_DATA;
+			entry.data_size_byte = jtOffset;
+			memcpy((uint8*)fImages.adr + jtOffsets[i], ucode + jtOffset,
+				jtSize);
+			uint64 jtAddress = fImages.buf->gpuPhysAdr + jtOffsets[i];
+			printf("  %-22s id %2u, version %#06x, %6" B_PRIu32 " bytes at %#"
+				B_PRIx64 "\n", ucodes[i].file, entry.id, entry.version,
+				entry.data_size_byte, address);
+			for (uint16 id = UCODE_ID_CP_MEC_JT1; id <= UCODE_ID_CP_MEC_JT2;
+					id++) {
+				SMU_Entry &jtEntry = toc.entry[toc.num_entries++];
+				jtEntry = entry;
+				jtEntry.id = id;
+				jtEntry.image_addr_high = jtAddress >> 32;
+				jtEntry.image_addr_low = (uint32)jtAddress;
+				jtEntry.data_size_byte = jtSize;
+				jtEntry.flags = 0;
+				printf("  %-22s id %2u, version %#06x, %6" B_PRIu32
+					" bytes at %#" B_PRIx64 " (not loaded)\n", "  jump table",
+					jtEntry.id, jtEntry.version, jtEntry.data_size_byte,
+					jtAddress);
+			}
+			continue;
+		}
 		printf("  %-22s id %2u, version %#06x, %6" B_PRIu32 " bytes at %#"
 			B_PRIx64 "\n", ucodes[i].file, entry.id, entry.version,
 			entry.data_size_byte, address);
@@ -371,7 +405,6 @@ PolarisSmu::LoadUcodes(const char *firmwareDir, const Ucode *ucodes,
 	WriteReg4AmdGpu(0x1520, 1);		// HDP_MEM_COHERENCY_FLUSH_CNTL
 	ReadReg4AmdGpu(0x1520);
 
-	// *** smu7_request_smu_load_fw()
 	uint32 softRegisters = ReadIndirect(SMU7_FIRMWARE_HEADER_LOCATION
 		+ SMU74_FIRMWARE_HEADER_SOFT_REGISTERS);
 	uint32 loadStatus = softRegisters + SMU74_SOFT_REGISTERS_UCODE_LOAD_STATUS;
@@ -385,14 +418,58 @@ PolarisSmu::LoadUcodes(const char *firmwareDir, const Ucode *ucodes,
 	uint64 tocAddress = fTocBuffer.buf->gpuPhysAdr;
 	CheckRet(SendMessage(PPSMC_MSG_DRV_DRAM_ADDR_HI, tocAddress >> 32));
 	CheckRet(SendMessage(PPSMC_MSG_DRV_DRAM_ADDR_LO, (uint32)tocAddress));
-	CheckRet(SendMessage(PPSMC_MSG_LoadUcodes, mask));
+	status_t status = SendMessage(PPSMC_MSG_LoadUcodes, mask);
 
 	// smu7_check_fw_load_finish()
-	status_t status = WaitIndirect(loadStatus, mask, mask, true,
-		"UcodeLoadStatus");
+	if (status >= B_OK) {
+		status = WaitIndirect(loadStatus, mask, mask, true,
+			"UcodeLoadStatus");
+	}
 	printf("SMU:       UcodeLoadStatus %#" B_PRIx32 "\n",
 		ReadIndirect(loadStatus));
+	if (status >= B_OK)
+		fLoadedMask = mask;
 	return status;
+}
+
+
+status_t
+PolarisSmu::LoadAllFirmware(const char *firmwareDir)
+{
+	// as Linux, everything in one LoadUcodes, in its TOC order
+	static const Ucode kUcodes[] = {
+		{UCODE_ID_RLC_G, "polaris11_rlc.bin"},
+		{UCODE_ID_CP_CE, "polaris11_ce_2.bin"},
+		{UCODE_ID_CP_PFP, "polaris11_pfp_2.bin"},
+		{UCODE_ID_CP_ME, "polaris11_me_2.bin"},
+		{UCODE_ID_CP_MEC, "polaris11_mec_2.bin"},
+		{UCODE_ID_SDMA0, "polaris11_sdma.bin"},
+		{UCODE_ID_SDMA1, "polaris11_sdma1.bin"},
+	};
+
+	if (fStarted)
+		return LoadUcodes(firmwareDir, kUcodes, B_COUNT_OF(kUcodes));
+
+	// started earlier: the SMU loads once per boot (a second LoadUcodes
+	// hung it while loading the MEC)
+	uint32 mask = 0;
+	for (uint32 i = 0; i < B_COUNT_OF(kUcodes); i++)
+		mask |= 1u << kUcodes[i].id;
+	uint32 softRegisters = ReadIndirect(SMU7_FIRMWARE_HEADER_LOCATION
+		+ SMU74_FIRMWARE_HEADER_SOFT_REGISTERS);
+	uint32 loaded = ReadIndirect(softRegisters
+		+ SMU74_SOFT_REGISTERS_UCODE_LOAD_STATUS);
+	if ((loaded & mask) == mask) {
+		printf("SMU:       firmware already loaded (UcodeLoadStatus %#"
+			B_PRIx32 ")\n", loaded);
+		return B_OK;
+	}
+	if (loaded != 0) {
+		printf("  [!] firmware partly loaded (UcodeLoadStatus %#" B_PRIx32
+			"), reboot to start over\n", loaded);
+		return B_BUSY;
+	}
+	return LoadUcodes(firmwareDir, kUcodes, B_COUNT_OF(kUcodes));
 }
 
 

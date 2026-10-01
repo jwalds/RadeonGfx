@@ -175,19 +175,8 @@ PolarisGfxTest()
 		status = smu.Start(smcFirmware.Path());
 	else if (status >= B_OK)
 		printf("SMU:       firmware already running\n");
-	if (status >= B_OK) {
-		// Linux loads these in one go (smu7_request_smu_load_fw()); the SMU
-		// releases the RLC and MEC after loading
-		static const PolarisSmu::Ucode kUcodes[] = {
-			{UCODE_ID_RLC_G, "polaris11_rlc.bin"},
-			{UCODE_ID_CP_CE, "polaris11_ce_2.bin"},
-			{UCODE_ID_CP_PFP, "polaris11_pfp_2.bin"},
-			{UCODE_ID_CP_ME, "polaris11_me_2.bin"},
-			{UCODE_ID_CP_MEC, "polaris11_mec_2.bin"},
-		};
-		status = smu.LoadUcodes(firmwareDir.Path(), kUcodes,
-			B_COUNT_OF(kUcodes));
-	}
+	if (status >= B_OK)
+		status = smu.LoadAllFirmware(firmwareDir.Path());
 	printf("SMU:       %" B_PRIu32 " C\n", smu.Temperature());
 
 	if (status >= B_OK)

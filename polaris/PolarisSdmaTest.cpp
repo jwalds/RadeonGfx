@@ -281,14 +281,8 @@ PolarisSdmaTest()
 		status = smu.Start(smcFirmware.Path());
 	else if (status >= B_OK)
 		printf("SMU:       firmware already running\n");
-	if (status >= B_OK) {
-		static const PolarisSmu::Ucode kUcodes[] = {
-			{UCODE_ID_SDMA0, "polaris11_sdma.bin"},
-			{UCODE_ID_SDMA1, "polaris11_sdma1.bin"},
-		};
-		status = smu.LoadUcodes(firmwareDir.Path(), kUcodes,
-			B_COUNT_OF(kUcodes));
-	}
+	if (status >= B_OK)
+		status = smu.LoadAllFirmware(firmwareDir.Path());
 	printf("SMU after: ");
 	smu.PrintState();
 
