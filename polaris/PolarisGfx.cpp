@@ -114,7 +114,7 @@ HaltCp()
 }
 
 
-static void
+static void __attribute__((unused))
 SoftReset()
 {
 	// gfx_v8_0_soft_reset(): reset RLC, GFX and the CP parts so a restart
@@ -215,7 +215,8 @@ PolarisGfx::Init()
 	// keeps the CP busy (CPF_STATUS INTERRUPT_BUSY), also after a reset
 	WriteReg4AmdGpu(mmCP_INT_CNTL_RING0, 0);
 	HaltCp();
-	SoftReset();
+	// SoftReset() isn't used: two runs with it hung the machine right
+	// after a fresh firmware load (Linux only resets to recover a hang)
 
 	// *** gfx_v8_0_init_golden_registers()
 	for (uint32 i = 0; i < B_COUNT_OF(kGoldenSettings); i += 3) {
