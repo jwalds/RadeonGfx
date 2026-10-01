@@ -169,6 +169,7 @@ public:
 	status_t InitGartPolaris();
 	void FiniGartPolaris();
 	MappedBuffer &GartPageTable() {return fGartPageTable;}
+	bool GartEnabled() {return fGartEnabled;}
 
 	status_t AllocWriteback(uint64 &gpuAdr, void *&cpuAdr, uint64 size);
 	void FreeWriteback(uint64 gpuAdr);

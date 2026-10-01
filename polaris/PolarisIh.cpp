@@ -57,9 +57,16 @@ PolarisIhRing::Init(uint32 ringSize)
 	if (!gDevice.RegsWritable())
 		return B_NOT_ALLOWED;
 
+	// The ring and write pointer are in system memory, mapped through the
+	// GART (VM context 0), as in Linux: the GPU needs the system aperture
+	// to reach VRAM, and the CPU would read VRAM through the HDP cache.
 	auto memMgr = gDevice.MemMgr().Switch();
-	fRing.SetTo(memMgr->Alloc(boDomainVramMappable, ringSize, ringSize));
-	fWptr.SetTo(memMgr->Alloc(boDomainVramMappable, B_PAGE_SIZE));
+	if (!memMgr->GartEnabled()) {
+		printf("[!] the IH ring needs the GART\n");
+		return B_NO_INIT;
+	}
+	fRing.SetTo(memMgr->Alloc(boDomainGtt, ringSize, ringSize));
+	fWptr.SetTo(memMgr->Alloc(boDomainGtt, B_PAGE_SIZE));
 	if (fRing.adr == NULL || fWptr.adr == NULL)
 		return B_NO_MEMORY;
 	memset(fRing.adr, 0, ringSize);
@@ -84,8 +91,8 @@ PolarisIhRing::Init(uint32 ringSize)
 		memMgr->fDummyPage->gpuPhysAdr >> 8);
 	value = ReadReg4AmdGpu(mmINTERRUPT_CNTL);
 	value = SET_FIELD(value, INTERRUPT_CNTL, IH_DUMMY_RD_OVERRIDE, 0);
-	// the ring is in non-cacheable memory (VRAM)
-	value = SET_FIELD(value, INTERRUPT_CNTL, IH_REQ_NONSNOOP_EN, 1);
+	// the ring is in cacheable (snooped) system memory
+	value = SET_FIELD(value, INTERRUPT_CNTL, IH_REQ_NONSNOOP_EN, 0);
 	WriteReg4AmdGpu(mmINTERRUPT_CNTL, value);
 
 	WriteReg4AmdGpu(mmIH_RB_BASE, fRing.buf->gpuPhysAdr >> 8);
@@ -114,7 +121,7 @@ PolarisIhRing::Init(uint32 ringSize)
 	fEnabled = true;
 
 	printf("IH ring:   %" B_PRIu32 " KB at %#" B_PRIx64 ", wptr at %#"
-		B_PRIx64 ", polled (CPU interrupt off)\n", ringSize / 1024,
+		B_PRIx64 " (GART), polled (CPU interrupt off)\n", ringSize / 1024,
 		fRing.buf->gpuPhysAdr, fWptr.buf->gpuPhysAdr);
 	return B_OK;
 }
@@ -136,6 +143,10 @@ PolarisIhRing::Fini()
 	for (int32 i = B_COUNT_OF(kSavedRegisters) - 1; i >= 0; i--)
 		WriteReg4AmdGpu(kSavedRegisters[i], sSavedValues[i]);
 	fEnabled = false;
+
+	// unmap from the GART while it's still enabled
+	fRing.SetTo(NULL);
+	fWptr.SetTo(NULL);
 }
 
 

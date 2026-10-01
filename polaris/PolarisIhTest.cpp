@@ -67,10 +67,18 @@ PolarisIhTest()
 	printf("Device:    %s (registers writable)\n", path.String());
 	CheckRet(gDevice.MemMgr().Switch()->InitPolaris());
 
+	// the GPU reaches VRAM and the ring only with the GART set up
+	status = gDevice.MemMgr().Switch()->InitGartPolaris();
+	if (status < B_OK) {
+		gDevice.MemMgr().Switch()->FiniGartPolaris();
+		return status;
+	}
+
 	PolarisIhRing ring;
 	status = ring.Init();
 	if (status < B_OK) {
 		ring.Fini();
+		gDevice.MemMgr().Switch()->FiniGartPolaris();
 		return status;
 	}
 
@@ -101,11 +109,12 @@ PolarisIhTest()
 	snooze(50000);
 	ring.Poll(HandleEntry, &state);
 	ring.Fini();
+	gDevice.MemMgr().Switch()->FiniGartPolaris();
 
 	printf("%" B_PRIu32 " vblank vectors in %.2f s (%.1f per second), %"
 		B_PRIu32 " other vectors%s\n", state.vblankCount, elapsed / 1e6,
 		state.vblankCount / (elapsed / 1e6), state.otherCount,
 		ring.Overflowed() ? ", ring overflowed" : "");
-	printf("IH ring disabled, registers restored\n");
+	printf("IH ring and GART disabled, registers restored\n");
 	return state.vblankCount > 0 ? B_OK : B_ERROR;
 }
