@@ -5,7 +5,9 @@
 // headers/private/graphics/radeon_hd/radeon_hd.h in the radeon_hd patches
 // (jwalds/haiku-radeon-polaris).
 
+#include <OS.h>
 #include <Drivers.h>
+#include <graphic_driver.h>
 
 #define RADEON_HD_RENDER_ACCELERANT_NAME	"radeon_gfx.accelerant"
 #define RADEON_HD_PRIVATE_DATA_MAGIC		'rdhd'
