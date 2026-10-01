@@ -229,6 +229,31 @@ DiagnoseGttStore(PolarisGfx &gfx, MappedBuffer &systemOutput,
 	printf("  GPU view of out[0]: memory %#010" B_PRIx32 ", TC L2 %#010"
 		B_PRIx32 "%s\n", vram[0], vram[1],
 		*fenceWord == 0x4d ? "" : " (no fence)");
+
+	// the CP through the TC L2: reads and writes of system memory
+	system[2] = 0x11112222;
+	FlushCpuCache(system, systemOutput.buf->size);
+	vram[2] = vram[3] = 0xbad0bad0;
+	PolarisFlushHdp();
+	*fenceWord = 0;
+	if (gfx.Begin(48) != B_OK)
+		return;
+	gfx.EmitCopyData(gpuAddress + 8, vramOutput.buf->gpuPhysAdr + 8, false);
+	gfx.EmitCopyData(gpuAddress + 8, vramOutput.buf->gpuPhysAdr + 12, true);
+	gfx.EmitWriteData(gpuAddress + 16, 0x33334444, false);
+	gfx.EmitWriteData(gpuAddress + 20, 0x55556666, true);
+	gfx.EmitFence(fenceAddress, 0x4e, false);
+	gfx.Commit();
+	start = system_time();
+	while (*fenceWord != 0x4e && system_time() - start < 1000000)
+		snooze(100);
+	PolarisInvalidateHdp();
+	printf("  CP read of 0x11112222 from GTT: memory %#010" B_PRIx32
+		", TC L2 %#010" B_PRIx32 "%s\n", vram[2], vram[3],
+		*fenceWord == 0x4e ? "" : " (no fence)");
+	printf("  CP write to GTT: memory %#010" B_PRIx32 " (0x33334444), TC L2 %#010"
+		B_PRIx32 " (0x55556666)\n", system[4], system[5]);
+	gfx.PrintVmFaults();
 }
 
 

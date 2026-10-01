@@ -482,11 +482,12 @@ PolarisGfx::EmitSetUconfigReg(uint32 reg, uint32 value)
 
 
 void
-PolarisGfx::EmitWriteData(uint64 address, uint32 value)
+PolarisGfx::EmitWriteData(uint64 address, uint32 value, bool throughL2)
 {
-	// destination: memory, with write confirmation
+	// destination: memory (5) or TC L2 (2), with write confirmation
 	Write(PACKET3(PACKET3_WRITE_DATA, 3));
-	Write(WRITE_DATA_DST_SEL(5) | WR_CONFIRM | WRITE_DATA_ENGINE_SEL(0));
+	Write(WRITE_DATA_DST_SEL(throughL2 ? 2 : 5) | WR_CONFIRM
+		| WRITE_DATA_ENGINE_SEL(0));
 	Write((uint32)address & 0xfffffffc);
 	Write((uint32)(address >> 32));
 	Write(value);
