@@ -7,6 +7,7 @@
 #include "PolarisGfxTest.h"
 #include "PolarisGfx.h"
 #include "PolarisIh.h"
+#include "PolarisSdma.h"
 #include "PolarisSmu.h"
 #include "RenderDevice.h"
 #include "RadeonDevice.h"
