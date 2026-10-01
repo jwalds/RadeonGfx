@@ -63,6 +63,9 @@ int main(int argc, char** argv)
 	};
 	Mode mode = serverMode;
 
+	// unbuffered, so the last step is visible if the machine hangs
+	setvbuf(stdout, NULL, _IONBF, 0);
+
 	// read-only probe of a Polaris GPU through the radeon_hd render device
 	if (argc >= 2 && strcmp(argv[1], "info") == 0)
 		return PolarisInfo() < B_OK ? 1 : 0;
