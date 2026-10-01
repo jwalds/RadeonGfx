@@ -447,28 +447,9 @@ PolarisSmu::LoadAllFirmware(const char *firmwareDir)
 		{UCODE_ID_SDMA1, "polaris11_sdma1.bin"},
 	};
 
-	if (fStarted)
-		return LoadUcodes(firmwareDir, kUcodes, B_COUNT_OF(kUcodes));
-
-	// started earlier: the SMU loads once per boot (a second LoadUcodes
-	// hung it while loading the MEC)
-	uint32 mask = 0;
-	for (uint32 i = 0; i < B_COUNT_OF(kUcodes); i++)
-		mask |= 1u << kUcodes[i].id;
-	uint32 softRegisters = ReadIndirect(SMU7_FIRMWARE_HEADER_LOCATION
-		+ SMU74_FIRMWARE_HEADER_SOFT_REGISTERS);
-	uint32 loaded = ReadIndirect(softRegisters
-		+ SMU74_SOFT_REGISTERS_UCODE_LOAD_STATUS);
-	if ((loaded & mask) == mask) {
-		printf("SMU:       firmware already loaded (UcodeLoadStatus %#"
-			B_PRIx32 ")\n", loaded);
-		return B_OK;
-	}
-	if (loaded != 0) {
-		printf("  [!] firmware partly loaded (UcodeLoadStatus %#" B_PRIx32
-			"), reboot to start over\n", loaded);
-		return B_BUSY;
-	}
+	// Like Linux (smu7_request_smu_load_fw() on every driver start), load
+	// again even if the SMU loaded the firmware before: a restarted CP
+	// without fresh firmware stays busy and loses its EOP interrupts.
 	return LoadUcodes(firmwareDir, kUcodes, B_COUNT_OF(kUcodes));
 }
 
