@@ -5,6 +5,7 @@
 #include "RenderDevice.h"
 #include "RadeonDevice.h"
 #include "RadeonMemory.h"
+#include "Poke.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -97,19 +98,24 @@ TestSystemMemory()
 		return area.Get();
 	memset(address, 0xa5, size);
 
-	physical_entry entries[64];
-	uint32 count = B_COUNT_OF(entries);
-	CheckRet(get_memory_map_etc(B_CURRENT_TEAM, address, size, entries,
-		&count));
-	uint64 highest = 0;
-	for (uint32 i = 0; i < count; i++) {
-		uint64 end = entries[i].address + entries[i].size;
-		if (end > highest)
-			highest = end;
+	// physical addresses through the poke driver, as GartMap() does
+	uint64 first = 0, highest = 0, previous = 0;
+	uint32 runs = 0;
+	for (size_t offset = 0; offset < size; offset += B_PAGE_SIZE) {
+		uint64 physical;
+		CheckRet(gPoke.GetPhysicalAddress(physical, (uint8*)address + offset,
+			B_PAGE_SIZE));
+		if (offset == 0)
+			first = physical;
+		if (offset == 0 || physical != previous + B_PAGE_SIZE)
+			runs++;
+		if (physical + B_PAGE_SIZE > highest)
+			highest = physical + B_PAGE_SIZE;
+		previous = physical;
 	}
 	printf("System memory (locked, for GTT)\n  4 MB in %" B_PRIu32
 		" physical runs, first at %#" B_PRIx64 ", highest end %#" B_PRIx64
-		"\n", count, (uint64)entries[0].address, highest);
+		"\n", runs, first, highest);
 	return B_OK;
 }
 
