@@ -18,6 +18,8 @@ public:
 	void Commit();
 	status_t WaitIdle(bigtime_t timeout);
 	void PrintState();
+	// valid waves in the shader engines (gfx_v8_0_read_wave_data())
+	void DumpWaves(uint32 maxWaves = 4);
 
 	void EnableEopInterrupt(bool enable);
 	// gfx_v8_0_constants_init(): shader memory configuration for VMID 0

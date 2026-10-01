@@ -536,3 +536,52 @@ PolarisGfx::SetupShaderMemory()
 	WriteReg4AmdGpu(mmSH_MEM_APE1_LIMIT, 0);
 
 }
+
+
+static uint32
+ReadWave(uint32 simd, uint32 wave, uint32 index)
+{
+	WriteReg4AmdGpu(mmSQ_IND_INDEX, (index << SQ_IND_INDEX__INDEX__SHIFT)
+		| (simd << SQ_IND_INDEX__SIMD_ID__SHIFT)
+		| (wave << SQ_IND_INDEX__WAVE_ID__SHIFT)
+		| SQ_IND_INDEX__FORCE_READ_MASK);
+	return ReadReg4AmdGpu(mmSQ_IND_DATA);
+}
+
+
+void
+PolarisGfx::DumpWaves(uint32 maxWaves)
+{
+	uint32 count = 0;
+	for (uint32 se = 0; se < 2; se++) {
+		for (uint32 cu = 0; cu < 8; cu++) {
+			WriteReg4AmdGpu(mmGRBM_GFX_INDEX,
+				(se << GRBM_GFX_INDEX__SE_INDEX__SHIFT)
+				| (cu << GRBM_GFX_INDEX__INSTANCE_INDEX__SHIFT)
+				| GRBM_GFX_INDEX__SH_BROADCAST_WRITES_MASK);
+			for (uint32 simd = 0; simd < 4; simd++) {
+				for (uint32 wave = 0; wave < 10; wave++) {
+					uint32 status = ReadWave(simd, wave, ixSQ_WAVE_STATUS);
+					if ((status & SQ_WAVE_STATUS__VALID_MASK) == 0)
+						continue;
+					if (count++ >= maxWaves)
+						continue;
+					printf("  wave SE%" B_PRIu32 " CU%" B_PRIu32 " SIMD%" B_PRIu32
+						" W%" B_PRIu32 ": status %#010" B_PRIx32 ", pc %#"
+						B_PRIx64 ", trapsts %#010" B_PRIx32 ", ib_sts %#010"
+						B_PRIx32 ", inst %#010" B_PRIx32 "\n", se, cu, simd,
+						wave, status,
+						((uint64)ReadWave(simd, wave, ixSQ_WAVE_PC_HI) << 32)
+							| ReadWave(simd, wave, ixSQ_WAVE_PC_LO),
+						ReadWave(simd, wave, ixSQ_WAVE_TRAPSTS),
+						ReadWave(simd, wave, ixSQ_WAVE_IB_STS),
+						ReadWave(simd, wave, ixSQ_WAVE_INST_DW0));
+				}
+			}
+		}
+	}
+	WriteReg4AmdGpu(mmGRBM_GFX_INDEX, GRBM_GFX_INDEX__SE_BROADCAST_WRITES_MASK
+		| GRBM_GFX_INDEX__SH_BROADCAST_WRITES_MASK
+		| GRBM_GFX_INDEX__INSTANCE_BROADCAST_WRITES_MASK);
+	printf("  %" B_PRIu32 " valid wave(s)\n", count);
+}

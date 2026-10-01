@@ -94,31 +94,22 @@ static const uint32 kFillShader[] = {
 };
 
 
+// s_endpgm
+static const uint32 kEmptyShader[] = {0xbf810000};
+
+
 static status_t
-RunComputeTest(PolarisGfx &gfx, uint64 fenceAddress,
-	volatile uint32 *fenceWord)
+Dispatch(PolarisGfx &gfx, const char *name, uint64 shaderAddress,
+	uint64 outputAddress, uint32 outputBytes, uint32 groups,
+	uint64 fenceAddress, volatile uint32 *fenceWord, uint32 fenceValue)
 {
-	const uint32 kGroups = 16, kGroupSize = 64;
-	const uint32 kCount = kGroups * kGroupSize;
-
-	auto memMgr = gDevice.MemMgr().Switch();
-	MappedBuffer shader(memMgr->Alloc(boDomainGtt, B_PAGE_SIZE, B_PAGE_SIZE));
-	MappedBuffer output(memMgr->Alloc(boDomainGtt, kCount * 4));
-	if (shader.adr == NULL || output.adr == NULL)
-		return B_NO_MEMORY;
-	memset(shader.adr, 0, B_PAGE_SIZE);
-	memcpy(shader.adr, kFillShader, sizeof(kFillShader));
-	memset(output.adr, 0, kCount * 4);
-	*fenceWord = 0;
-
-	uint64 shaderAddress = shader.buf->gpuPhysAdr;
-	uint64 outputAddress = output.buf->gpuPhysAdr;
+	const uint32 kGroupSize = 64;
 	// buffer descriptor (V#): base, stride 0, num_records in bytes,
 	// dst_sel xyzw, num_format float, data_format 32
 	const uint32 descriptor[4] = {
 		(uint32)outputAddress,
 		(uint32)(outputAddress >> 32) & 0xffff,
-		kCount * 4,
+		outputBytes,
 		0x00027fac
 	};
 	const uint32 start[3] = {0, 0, 0};
@@ -134,6 +125,7 @@ RunComputeTest(PolarisGfx &gfx, uint64 fenceAddress,
 	};
 	const uint32 cuMask[2] = {0xffffffff, 0xffffffff};
 
+	*fenceWord = 0;
 	CheckRet(gfx.Begin(64));
 	gfx.EmitSetComputeReg(mmCOMPUTE_START_X, start, 3);
 	gfx.EmitSetComputeReg(mmCOMPUTE_NUM_THREAD_X, threads, 3);
@@ -144,32 +136,92 @@ RunComputeTest(PolarisGfx &gfx, uint64 fenceAddress,
 	gfx.EmitSetComputeReg(mmCOMPUTE_STATIC_THREAD_MGMT_SE2, cuMask, 2);
 	gfx.EmitSetComputeReg(mmCOMPUTE_TMPRING_SIZE, 0);
 	gfx.EmitSetComputeReg(mmCOMPUTE_USER_DATA_0, descriptor, 4);
-	gfx.EmitDispatch(kGroups, 1, 1);
+	gfx.EmitDispatch(groups, 1, 1);
 	gfx.EmitCsPartialFlush();
-	gfx.EmitFence(fenceAddress, 4, false);
-	CheckRet(Run(gfx, "compute dispatch"));
+	gfx.EmitFence(fenceAddress, fenceValue, false);
+	gfx.Commit();
 
 	bigtime_t start2 = system_time();
-	while (*fenceWord != 4 && system_time() - start2 < 100000)
+	while (*fenceWord != fenceValue && system_time() - start2 < 1000000)
 		snooze(100);
+	if (*fenceWord != fenceValue) {
+		printf("  [!] %s: no fence after the dispatch\n", name);
+		gfx.PrintState();
+		gfx.DumpWaves();
+		return B_TIMED_OUT;
+	}
+	return B_OK;
+}
 
-	const volatile uint32 *words = (const volatile uint32*)output.adr;
+
+static bool
+CheckOutput(const volatile uint32 *words, uint32 count, const char *name)
+{
 	uint32 bad = 0;
-	for (uint32 i = 0; i < kCount; i++) {
+	for (uint32 i = 0; i < count; i++) {
 		if (words[i] != (0xc0de0000 | i)) {
 			if (bad < 4) {
-				printf("  [!] out[%" B_PRIu32 "] = %#010" B_PRIx32 "\n", i,
-					words[i]);
+				printf("  [!] %s: out[%" B_PRIu32 "] = %#010" B_PRIx32 "\n",
+					name, i, words[i]);
 			}
 			bad++;
 		}
 	}
-	bool ok = *fenceWord == 4 && bad == 0;
-	printf("4. compute shader, %" B_PRIu32 " x %" B_PRIu32 " threads: out[0] "
-		"%#010" B_PRIx32 ", out[%" B_PRIu32 "] %#010" B_PRIx32 ", %" B_PRIu32
-		" wrong, fence %" B_PRIu32 ": %s\n", kGroups, kGroupSize, words[0],
-		kCount - 1, words[kCount - 1], bad, *fenceWord,
-		ok ? "OK" : "[!] FAILED");
+	return bad == 0;
+}
+
+
+static status_t
+RunComputeTest(PolarisGfx &gfx, uint64 fenceAddress,
+	volatile uint32 *fenceWord)
+{
+	const uint32 kGroups = 16, kCount = kGroups * 64;
+
+	auto memMgr = gDevice.MemMgr().Switch();
+	MappedBuffer emptyShader(memMgr->Alloc(boDomainVramMappable, B_PAGE_SIZE,
+		B_PAGE_SIZE));
+	MappedBuffer shader(memMgr->Alloc(boDomainVramMappable, B_PAGE_SIZE,
+		B_PAGE_SIZE));
+	MappedBuffer vramOutput(memMgr->Alloc(boDomainVramMappable, kCount * 4));
+	MappedBuffer systemOutput(memMgr->Alloc(boDomainGtt, kCount * 4));
+	if (emptyShader.adr == NULL || shader.adr == NULL
+		|| vramOutput.adr == NULL || systemOutput.adr == NULL)
+		return B_NO_MEMORY;
+	memset(emptyShader.adr, 0, B_PAGE_SIZE);
+	memcpy(emptyShader.adr, kEmptyShader, sizeof(kEmptyShader));
+	memset(shader.adr, 0, B_PAGE_SIZE);
+	memcpy(shader.adr, kFillShader, sizeof(kFillShader));
+	memset(vramOutput.adr, 0, kCount * 4);
+	memset(systemOutput.adr, 0, kCount * 4);
+	PolarisFlushHdp();
+
+	// 4a. waves start and end
+	CheckRet(Dispatch(gfx, "empty shader", emptyShader.buf->gpuPhysAdr,
+		vramOutput.buf->gpuPhysAdr, kCount * 4, kGroups, fenceAddress,
+		fenceWord, 0x4a));
+	printf("4a. empty shader (VRAM), %" B_PRIu32 " x 64 threads: OK\n",
+		kGroups);
+
+	// 4b. stores to VRAM
+	CheckRet(Dispatch(gfx, "store to VRAM", shader.buf->gpuPhysAdr,
+		vramOutput.buf->gpuPhysAdr, kCount * 4, kGroups, fenceAddress,
+		fenceWord, 0x4b));
+	PolarisInvalidateHdp();
+	bool ok = CheckOutput((volatile uint32*)vramOutput.adr, kCount,
+		"store to VRAM");
+	printf("4b. buffer_store shader -> VRAM, %" B_PRIu32 " values: %s\n",
+		kCount, ok ? "OK" : "[!] FAILED");
+	if (!ok)
+		return B_ERROR;
+
+	// 4c. stores to system memory through the GART
+	CheckRet(Dispatch(gfx, "store to GTT", shader.buf->gpuPhysAdr,
+		systemOutput.buf->gpuPhysAdr, kCount * 4, kGroups, fenceAddress,
+		fenceWord, 0x4c));
+	ok = CheckOutput((volatile uint32*)systemOutput.adr, kCount,
+		"store to GTT");
+	printf("4c. buffer_store shader -> system memory, %" B_PRIu32
+		" values: %s\n", kCount, ok ? "OK" : "[!] FAILED");
 	return ok ? B_OK : B_ERROR;
 }
 
