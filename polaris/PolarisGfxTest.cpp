@@ -171,6 +171,51 @@ CheckOutput(const volatile uint32 *words, uint32 count, const char *name)
 }
 
 
+static void
+DiagnoseGttStore(PolarisGfx &gfx, MappedBuffer &systemOutput,
+	MappedBuffer &vramOutput, uint64 fenceAddress, volatile uint32 *fenceWord)
+{
+	volatile uint32 *system = (volatile uint32*)systemOutput.adr;
+	volatile uint32 *vram = (volatile uint32*)vramOutput.adr;
+	snooze(100000);
+	printf("  after 100 ms: out[0] %#010" B_PRIx32 ", out[1] %#010" B_PRIx32
+		"\n", system[0], system[1]);
+
+	auto memMgr = gDevice.MemMgr().Switch();
+	uint64 gpuAddress = systemOutput.buf->gpuPhysAdr;
+	const uint64 *pageTable = (const uint64*)memMgr->GartPageTable().adr;
+	printf("  output at %#" B_PRIx64 ", PTE %#018" B_PRIx64 "\n", gpuAddress,
+		pageTable[(gpuAddress - memMgr->fGttRange.beg) / B_PAGE_SIZE]);
+	PolarisInvalidateHdp();
+	MappedBuffer dummy(memMgr->fDummyPage);
+	if (dummy.adr != NULL) {
+		volatile uint32 *words = (volatile uint32*)dummy.adr;
+		printf("  dummy page: %#010" B_PRIx32 " %#010" B_PRIx32 " %#010"
+			B_PRIx32 " %#010" B_PRIx32 "\n", words[0], words[1], words[2],
+			words[3]);
+	}
+	gfx.PrintVmFaults();
+
+	// what does the GPU see at out[0]: memory and TC L2, copied to VRAM
+	vram[0] = vram[1] = 0xbad0bad0;
+	PolarisFlushHdp();
+	*fenceWord = 0;
+	if (gfx.Begin(32) != B_OK)
+		return;
+	gfx.EmitCopyData(gpuAddress, vramOutput.buf->gpuPhysAdr, false);
+	gfx.EmitCopyData(gpuAddress, vramOutput.buf->gpuPhysAdr + 4, true);
+	gfx.EmitFence(fenceAddress, 0x4d, false);
+	gfx.Commit();
+	bigtime_t start = system_time();
+	while (*fenceWord != 0x4d && system_time() - start < 1000000)
+		snooze(100);
+	PolarisInvalidateHdp();
+	printf("  GPU view of out[0]: memory %#010" B_PRIx32 ", TC L2 %#010"
+		B_PRIx32 "%s\n", vram[0], vram[1],
+		*fenceWord == 0x4d ? "" : " (no fence)");
+}
+
+
 static status_t
 RunComputeTest(PolarisGfx &gfx, uint64 fenceAddress,
 	volatile uint32 *fenceWord)
@@ -222,6 +267,9 @@ RunComputeTest(PolarisGfx &gfx, uint64 fenceAddress,
 		"store to GTT");
 	printf("4c. buffer_store shader -> system memory, %" B_PRIu32
 		" values: %s\n", kCount, ok ? "OK" : "[!] FAILED");
+	if (!ok)
+		DiagnoseGttStore(gfx, systemOutput, vramOutput, fenceAddress,
+			fenceWord);
 	return ok ? B_OK : B_ERROR;
 }
 

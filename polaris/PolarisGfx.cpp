@@ -444,6 +444,26 @@ PolarisGfx::PrintState()
 
 
 void
+PolarisGfx::PrintVmFaults()
+{
+	printf("  VM context 0: fault status %#010" B_PRIx32 ", address %#010"
+		B_PRIx32 ", client %#010" B_PRIx32 ", CNTL %#010" B_PRIx32 "\n",
+		ReadReg4AmdGpu(mmVM_CONTEXT0_PROTECTION_FAULT_STATUS),
+		ReadReg4AmdGpu(mmVM_CONTEXT0_PROTECTION_FAULT_ADDR),
+		ReadReg4AmdGpu(mmVM_CONTEXT0_PROTECTION_FAULT_MCCLIENT),
+		ReadReg4AmdGpu(mmVM_CONTEXT0_CNTL));
+	printf("  VM context 1: fault status %#010" B_PRIx32 ", address %#010"
+		B_PRIx32 ", client %#010" B_PRIx32 ", CNTL %#010" B_PRIx32 "\n",
+		ReadReg4AmdGpu(mmVM_CONTEXT1_PROTECTION_FAULT_STATUS),
+		ReadReg4AmdGpu(mmVM_CONTEXT1_PROTECTION_FAULT_ADDR),
+		ReadReg4AmdGpu(mmVM_CONTEXT1_PROTECTION_FAULT_MCCLIENT),
+		ReadReg4AmdGpu(mmVM_CONTEXT1_CNTL));
+	printf("  CP_RB_VMID %#" B_PRIx32 ", VM_L2_STATUS %#" B_PRIx32 "\n",
+		ReadReg4AmdGpu(mmCP_RB_VMID), ReadReg4AmdGpu(mmVM_L2_STATUS));
+}
+
+
+void
 PolarisGfx::EnableEopInterrupt(bool enable)
 {
 	uint32 value = ReadReg4AmdGpu(mmCP_INT_CNTL_RING0);
@@ -470,6 +490,19 @@ PolarisGfx::EmitWriteData(uint64 address, uint32 value)
 	Write((uint32)address & 0xfffffffc);
 	Write((uint32)(address >> 32));
 	Write(value);
+}
+
+
+void
+PolarisGfx::EmitCopyData(uint64 source, uint64 destination, bool throughL2)
+{
+	// one dword, source memory (1) or TC L2 (2), destination memory (5)
+	Write(PACKET3(PACKET3_COPY_DATA, 4));
+	Write((throughL2 ? 2 : 1) | (5 << 8) | WR_CONFIRM);
+	Write((uint32)source);
+	Write((uint32)(source >> 32));
+	Write((uint32)destination);
+	Write((uint32)(destination >> 32));
 }
 
 

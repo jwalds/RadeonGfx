@@ -18,6 +18,7 @@ public:
 	void Commit();
 	status_t WaitIdle(bigtime_t timeout);
 	void PrintState();
+	void PrintVmFaults();
 	// valid waves in the shader engines (gfx_v8_0_read_wave_data())
 	void DumpWaves(uint32 maxWaves = 4);
 
@@ -28,6 +29,8 @@ public:
 	// packets
 	void EmitSetUconfigReg(uint32 reg, uint32 value);
 	void EmitWriteData(uint64 address, uint32 value);
+	void EmitCopyData(uint64 source, uint64 destination,
+		bool throughL2);
 	void EmitFence(uint64 address, uint32 value, bool interrupt);
 	// compute on the graphics ring (shader type bit set)
 	void EmitSetComputeReg(uint32 reg, const uint32 *values, uint32 count);
