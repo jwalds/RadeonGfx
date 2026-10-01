@@ -394,12 +394,18 @@ PolarisGfx::WaitIdle(bigtime_t timeout)
 	bigtime_t start = system_time();
 	for (;;) {
 		uint32 rptr = ReadReg4AmdGpu(mmCP_RB0_RPTR);
-		if (rptr == fWptr
-			&& (ReadReg4AmdGpu(mmGRBM_STATUS) & GRBM_STATUS__GUI_ACTIVE_MASK)
-				== 0)
+		uint32 status = ReadReg4AmdGpu(mmGRBM_STATUS);
+		if (rptr == fWptr && (status & GRBM_STATUS__GUI_ACTIVE_MASK) == 0)
 			return B_OK;
-		if (system_time() - start > timeout)
+		if (system_time() - start > timeout) {
+			if (rptr == fWptr) {
+				// everything fetched; report the busy state, but go on
+				printf("  (ring consumed, GRBM_STATUS %#010" B_PRIx32
+					" still busy)\n", status);
+				return B_OK;
+			}
 			return B_TIMED_OUT;
+		}
 		snooze(10);
 	}
 }
