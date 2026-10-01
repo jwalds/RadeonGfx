@@ -130,11 +130,16 @@ PolarisMemTest()
 		return B_ENTRY_NOT_FOUND;
 	}
 
-	CheckRet(gDevice.InitPolaris(fd.Get(), false));
+	status_t status = gDevice.InitPolaris(fd.Get(), false);
+	if (status < B_OK) {
+		printf("[!] attaching to %s failed: %s\n", path.String(),
+			strerror(status));
+		return status;
+	}
 	printf("Device:    %s (registers read-only)\n", path.String());
 
 	auto memMgr = gDevice.MemMgr().Switch();
-	status_t status = memMgr->InitPolaris();
+	status = memMgr->InitPolaris();
 	if (status < B_OK) {
 		printf("[!] memory init failed: %s\n", strerror(status));
 		return status;
