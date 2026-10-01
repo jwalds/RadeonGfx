@@ -12,6 +12,7 @@
 
 #include "RadeonDevice.h"
 #include "RadeonServer.h"
+#include "PolarisInfo.h"
 
 #define CheckRet(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
@@ -56,6 +57,11 @@ int main(int argc, char** argv)
 		serverMode
 	};
 	Mode mode = serverMode;
+
+	// read-only probe of a Polaris GPU through the radeon_hd render device
+	if (argc >= 2 && strcmp(argv[1], "info") == 0)
+		return PolarisInfo() < B_OK ? 1 : 0;
+
 	if (argc >= 2) {
 		if (strcmp(argv[1], "server") == 0) mode = serverMode;
 		if (strcmp(argv[1], "test") == 0) mode = testMode;
