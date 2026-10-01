@@ -60,6 +60,11 @@ RadeonDevice::RadeonDevice():
 
 RadeonDevice::~RadeonDevice()
 {
+	// The global device is destroyed at exit even if Init() never ran (e.g.
+	// "RadeonGfx info"); don't touch registers that were never mapped.
+	if (fRegs == NULL)
+		return;
+
 	printf("-RadeonDevice\n");
 	fIntRing.Switch()->Disable();
 	fIntRing.Delete();

@@ -39,7 +39,9 @@ OpenRenderDevice(FileDescriptorCloser &fd, BString &path)
 
 	struct dirent *entry;
 	while ((entry = readdir(dir.Get())) != NULL) {
-		if (entry->d_name[0] == '.')
+		// only open our render nodes, opening other drivers has side effects
+		if (strncmp(entry->d_name, "radeon_hd_render_",
+				strlen("radeon_hd_render_")) != 0)
 			continue;
 		BString name;
 		name.SetToFormat("%s/%s", dirPath, entry->d_name);

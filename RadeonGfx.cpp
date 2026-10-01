@@ -62,6 +62,14 @@ int main(int argc, char** argv)
 	if (argc >= 2 && strcmp(argv[1], "info") == 0)
 		return PolarisInfo() < B_OK ? 1 : 0;
 
+	// The server and test modes still contain Southern Islands (GFX6)
+	// initialization, which must not run on Polaris (GFX8).
+	if (argc < 3 || strcmp(argv[argc - 1], "--si") != 0) {
+		fprintf(stderr, "Only \"%s info\" is supported on Polaris yet "
+			"(add --si to run the Southern Islands code).\n", argv[0]);
+		return 1;
+	}
+
 	if (argc >= 2) {
 		if (strcmp(argv[1], "server") == 0) mode = serverMode;
 		if (strcmp(argv[1], "test") == 0) mode = testMode;
