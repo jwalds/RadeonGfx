@@ -8,12 +8,16 @@
 #include <OS.h>
 
 #include "vi/gfx_8_0_d.h"
+#include "vi/oss_3_0_d.h"
 #include "vi/gfx_8_0_sh_mask.h"
 #include "vi/vid.h"
 #include "vi/clearstate_vi.h"
 
 // gfx_8_0_enum.h
 #define CACHE_FLUSH_AND_INV_TS_EVENT	0x14
+#define CS_PARTIAL_FLUSH				0x7
+static const uint32 kMtypeUc = 3;
+static const uint32 kShMemAlignmentModeUnaligned = 3;
 
 #define CheckRet(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
@@ -72,6 +76,9 @@ static const uint32 kSavedRegisters[] = {
 	mmCP_RB_WPTR_POLL_ADDR_HI, mmCP_RB0_BASE, mmCP_RB0_BASE_HI,
 	mmCP_RB_DOORBELL_CONTROL, mmCP_MAX_CONTEXT, mmCP_ENDIAN_SWAP,
 	mmCP_DEVICE_ID, mmCP_INT_CNTL_RING0, mmCP_RB0_CNTL,
+	// shader memory (VMID 0, SRBM_GFX_CNTL selects VMID 0)
+	mmSH_STATIC_MEM_CONFIG, mmSH_MEM_CONFIG, mmSH_MEM_BASES,
+	mmSH_MEM_APE1_BASE, mmSH_MEM_APE1_LIMIT,
 	// restored last
 	mmGRBM_GFX_INDEX,
 };
@@ -172,8 +179,23 @@ PolarisGfx::Init()
 		WriteReg4AmdGpu(kGoldenSettings[i], value);
 	}
 
+	// *** gfx_v8_0_constants_init(): shader memory for VMID 0
+	uint32 value = SET_FIELD(0, SH_STATIC_MEM_CONFIG, SWIZZLE_ENABLE, 1);
+	value = SET_FIELD(value, SH_STATIC_MEM_CONFIG, ELEMENT_SIZE, 1);
+	value = SET_FIELD(value, SH_STATIC_MEM_CONFIG, INDEX_STRIDE, 3);
+	WriteReg4AmdGpu(mmSH_STATIC_MEM_CONFIG, value);
+	WriteReg4AmdGpu(mmSRBM_GFX_CNTL, 0);
+	value = SET_FIELD(0, SH_MEM_CONFIG, DEFAULT_MTYPE, kMtypeUc);
+	value = SET_FIELD(value, SH_MEM_CONFIG, APE1_MTYPE, kMtypeUc);
+	value = SET_FIELD(value, SH_MEM_CONFIG, ALIGNMENT_MODE,
+		kShMemAlignmentModeUnaligned);
+	WriteReg4AmdGpu(mmSH_MEM_CONFIG, value);
+	WriteReg4AmdGpu(mmSH_MEM_BASES, 0);
+	WriteReg4AmdGpu(mmSH_MEM_APE1_BASE, 1);
+	WriteReg4AmdGpu(mmSH_MEM_APE1_LIMIT, 0);
+
 	// *** gfx_v8_0_rlc_resume(): stop, reset, start (no power gating)
-	uint32 value = ReadReg4AmdGpu(mmRLC_CNTL);
+	value = ReadReg4AmdGpu(mmRLC_CNTL);
 	WriteReg4AmdGpu(mmRLC_CNTL, SET_FIELD(value, RLC_CNTL, RLC_ENABLE_F32, 0));
 	WaitForRlcSerdes();
 	value = ReadReg4AmdGpu(mmGRBM_SOFT_RESET);
@@ -415,4 +437,33 @@ PolarisGfx::EmitFence(uint64 address, uint32 value, bool interrupt)
 		| INT_SEL(interrupt ? 2 : 0));
 	Write(value);
 	Write(0);
+}
+
+
+void
+PolarisGfx::EmitSetComputeReg(uint32 reg, const uint32 *values, uint32 count)
+{
+	Write(PACKET3_COMPUTE(PACKET3_SET_SH_REG, count));
+	Write(reg - PACKET3_SET_SH_REG_START);
+	for (uint32 i = 0; i < count; i++)
+		Write(values[i]);
+}
+
+
+void
+PolarisGfx::EmitDispatch(uint32 x, uint32 y, uint32 z)
+{
+	Write(PACKET3_COMPUTE(PACKET3_DISPATCH_DIRECT, 3));
+	Write(x);
+	Write(y);
+	Write(z);
+	Write(COMPUTE_DISPATCH_INITIATOR__COMPUTE_SHADER_EN_MASK);
+}
+
+
+void
+PolarisGfx::EmitCsPartialFlush()
+{
+	Write(PACKET3(PACKET3_EVENT_WRITE, 0));
+	Write(EVENT_TYPE(CS_PARTIAL_FLUSH) | EVENT_INDEX(4));
 }

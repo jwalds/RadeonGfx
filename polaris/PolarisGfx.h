@@ -25,6 +25,12 @@ public:
 	void EmitSetUconfigReg(uint32 reg, uint32 value);
 	void EmitWriteData(uint64 address, uint32 value);
 	void EmitFence(uint64 address, uint32 value, bool interrupt);
+	// compute on the graphics ring (shader type bit set)
+	void EmitSetComputeReg(uint32 reg, const uint32 *values, uint32 count);
+	void EmitSetComputeReg(uint32 reg, uint32 value)
+		{ EmitSetComputeReg(reg, &value, 1); }
+	void EmitDispatch(uint32 x, uint32 y, uint32 z);
+	void EmitCsPartialFlush();
 
 private:
 	void EmitClearState();
