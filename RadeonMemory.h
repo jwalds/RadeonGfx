@@ -166,7 +166,7 @@ public:
 	status_t Init();
 	status_t InitPolaris();
 	status_t InitGart();
-	status_t InitGartPolaris();
+	status_t InitGartPolaris(bool allContexts = false);
 	void FiniGartPolaris();
 	MappedBuffer &GartPageTable() {return fGartPageTable;}
 	bool GartEnabled() {return fGartEnabled;}

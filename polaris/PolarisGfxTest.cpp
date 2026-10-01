@@ -386,7 +386,7 @@ RunTests(PolarisGfx &gfx, PolarisIhRing &ih)
 
 
 status_t
-PolarisGfxTest()
+PolarisGfxTest(bool allContexts)
 {
 	FileDescriptorCloser fd;
 	BString path;
@@ -407,7 +407,7 @@ PolarisGfxTest()
 	CheckRet(FirmwareDir(firmwareDir));
 	BPath smcFirmware(firmwareDir.Path(), "polaris11_smc.bin");
 
-	status = gDevice.MemMgr().Switch()->InitGartPolaris();
+	status = gDevice.MemMgr().Switch()->InitGartPolaris(allContexts);
 	PolarisIhRing ih;
 	PolarisSmu smu;
 	PolarisGfx gfx;

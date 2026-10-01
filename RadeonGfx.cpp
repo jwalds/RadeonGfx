@@ -78,7 +78,8 @@ int main(int argc, char** argv)
 	if (argc >= 2 && strcmp(argv[1], "sdmatest") == 0)
 		return PolarisSdmaTest() < B_OK ? 1 : 0;
 	if (argc >= 2 && strcmp(argv[1], "gfxtest") == 0)
-		return PolarisGfxTest() < B_OK ? 1 : 0;
+		return PolarisGfxTest(argc >= 3
+			&& strcmp(argv[2], "--all-vm-contexts") == 0) < B_OK ? 1 : 0;
 
 	// The server and test modes still contain Southern Islands (GFX6)
 	// initialization, which must not run on Polaris (GFX8).

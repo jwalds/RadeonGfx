@@ -3,4 +3,4 @@
 #include <SupportDefs.h>
 
 
-status_t PolarisGfxTest();
+status_t PolarisGfxTest(bool allContexts = false);

@@ -51,6 +51,26 @@ static const uint32 kSavedRegisters[] = {
 	mmVM_L2_CONTEXT1_IDENTITY_APERTURE_LOW_ADDR,
 	mmVM_L2_CONTEXT1_IDENTITY_APERTURE_HIGH_ADDR,
 	mmVM_L2_CONTEXT_IDENTITY_PHYSICAL_OFFSET,
+	mmVM_CONTEXT1_PAGE_TABLE_START_ADDR,
+	mmVM_CONTEXT1_PAGE_TABLE_END_ADDR,
+	mmVM_CONTEXT1_PAGE_TABLE_BASE_ADDR,
+	mmVM_CONTEXT1_PAGE_TABLE_BASE_ADDR + 1,
+	mmVM_CONTEXT1_PAGE_TABLE_BASE_ADDR + 2,
+	mmVM_CONTEXT1_PAGE_TABLE_BASE_ADDR + 3,
+	mmVM_CONTEXT1_PAGE_TABLE_BASE_ADDR + 4,
+	mmVM_CONTEXT1_PAGE_TABLE_BASE_ADDR + 5,
+	mmVM_CONTEXT1_PAGE_TABLE_BASE_ADDR + 6,
+	mmVM_CONTEXT8_PAGE_TABLE_BASE_ADDR,
+	mmVM_CONTEXT8_PAGE_TABLE_BASE_ADDR + 1,
+	mmVM_CONTEXT8_PAGE_TABLE_BASE_ADDR + 2,
+	mmVM_CONTEXT8_PAGE_TABLE_BASE_ADDR + 3,
+	mmVM_CONTEXT8_PAGE_TABLE_BASE_ADDR + 4,
+	mmVM_CONTEXT8_PAGE_TABLE_BASE_ADDR + 5,
+	mmVM_CONTEXT8_PAGE_TABLE_BASE_ADDR + 6,
+	mmVM_CONTEXT8_PAGE_TABLE_BASE_ADDR + 7,
+	mmVM_CONTEXT1_PROTECTION_FAULT_DEFAULT_ADDR,
+	mmVM_CONTEXT1_CNTL2,
+	mmVM_CONTEXT1_CNTL,
 };
 
 static uint32 sSavedValues[B_COUNT_OF(kSavedRegisters)];
@@ -76,7 +96,7 @@ WaitForMcIdle(const char *when)
 
 
 status_t
-MemoryManager::InitGartPolaris()
+MemoryManager::InitGartPolaris(bool allContexts)
 {
 	if (fGartEnabled)
 		return B_OK;
@@ -184,7 +204,31 @@ MemoryManager::InitGartPolaris()
 	WriteReg4AmdGpu(mmVM_L2_CONTEXT1_IDENTITY_APERTURE_HIGH_ADDR, 0);
 	WriteReg4AmdGpu(mmVM_L2_CONTEXT_IDENTITY_PHYSICAL_OFFSET, 0);
 
-	// contexts 1-15 (per process address spaces) stay disabled for now
+	// contexts 1-15 (per process address spaces) stay disabled for now,
+	// unless a test asks for them to map the GART as context 0 does
+	if (allContexts) {
+		WriteReg4AmdGpu(mmVM_CONTEXT1_PAGE_TABLE_START_ADDR,
+			fGttRange.beg >> 12);
+		WriteReg4AmdGpu(mmVM_CONTEXT1_PAGE_TABLE_END_ADDR,
+			(fGttRange.beg + fGttRange.size - 1) >> 12);
+		for (uint32 i = 1; i < 16; i++) {
+			WriteReg4AmdGpu(i < 8 ? mmVM_CONTEXT1_PAGE_TABLE_BASE_ADDR + i - 1
+					: mmVM_CONTEXT8_PAGE_TABLE_BASE_ADDR + i - 8,
+				fGartPageTable.buf->gpuPhysAdr >> 12);
+		}
+		WriteReg4AmdGpu(mmVM_CONTEXT1_PROTECTION_FAULT_DEFAULT_ADDR,
+			fDummyPage->gpuPhysAdr >> 12);
+		WriteReg4AmdGpu(mmVM_CONTEXT1_CNTL2, 0);
+		value = ReadReg4AmdGpu(mmVM_CONTEXT1_CNTL);
+		value = SET_FIELD(value, VM_CONTEXT1_CNTL, ENABLE_CONTEXT, 1);
+		value = SET_FIELD(value, VM_CONTEXT1_CNTL, PAGE_TABLE_DEPTH, 0);
+		value = SET_FIELD(value, VM_CONTEXT1_CNTL,
+			RANGE_PROTECTION_FAULT_ENABLE_DEFAULT, 1);
+		value = SET_FIELD(value, VM_CONTEXT1_CNTL,
+			VALID_PROTECTION_FAULT_ENABLE_DEFAULT, 1);
+		WriteReg4AmdGpu(mmVM_CONTEXT1_CNTL, value);
+		printf("GART:      also mapped by VM contexts 1-15\n");
+	}
 
 	GartFlushTlb();
 	fGartEnabled = true;
@@ -206,6 +250,7 @@ MemoryManager::FiniGartPolaris()
 
 	// gmc_v8_0_gart_disable(), then the VBIOS values
 	WriteReg4AmdGpu(mmVM_CONTEXT0_CNTL, 0);
+	WriteReg4AmdGpu(mmVM_CONTEXT1_CNTL, 0);
 	uint32 value = ReadReg4AmdGpu(mmMC_VM_MX_L1_TLB_CNTL);
 	value = SET_FIELD(value, MC_VM_MX_L1_TLB_CNTL, ENABLE_L1_TLB, 0);
 	value = SET_FIELD(value, MC_VM_MX_L1_TLB_CNTL,
