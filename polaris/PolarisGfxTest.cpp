@@ -154,6 +154,17 @@ Dispatch(PolarisGfx &gfx, const char *name, uint64 shaderAddress,
 }
 
 
+// writes back and drops the CPU cache lines of a buffer
+static void
+FlushCpuCache(volatile void *address, size_t size)
+{
+	__builtin_ia32_mfence();
+	for (size_t offset = 0; offset < size; offset += 64)
+		__builtin_ia32_clflush((const void*)((addr_t)address + offset));
+	__builtin_ia32_mfence();
+}
+
+
 static bool
 CheckOutput(const volatile uint32 *words, uint32 count, const char *name)
 {
@@ -180,6 +191,11 @@ DiagnoseGttStore(PolarisGfx &gfx, MappedBuffer &systemOutput,
 	snooze(100000);
 	printf("  after 100 ms: out[0] %#010" B_PRIx32 ", out[1] %#010" B_PRIx32
 		"\n", system[0], system[1]);
+	FlushCpuCache(system, systemOutput.buf->size);
+	printf("  after a CPU cache flush: out[0] %#010" B_PRIx32 ", out[1] %#010"
+		B_PRIx32 "%s\n", system[0], system[1], CheckOutput(system, 1024,
+			"flushed") ? ", all values OK (the GPU writes are not snooped)"
+			: "");
 
 	auto memMgr = gDevice.MemMgr().Switch();
 	uint64 gpuAddress = systemOutput.buf->gpuPhysAdr;
@@ -259,7 +275,9 @@ RunComputeTest(PolarisGfx &gfx, uint64 fenceAddress,
 	if (!ok)
 		return B_ERROR;
 
-	// 4c. stores to system memory through the GART
+	// 4c. stores to system memory through the GART, with no dirty CPU cache
+	// lines for the output, so that a non-snooped GPU write is not lost
+	FlushCpuCache(systemOutput.adr, kCount * 4);
 	CheckRet(Dispatch(gfx, "store to GTT", shader.buf->gpuPhysAdr,
 		systemOutput.buf->gpuPhysAdr, kCount * 4, kGroups, fenceAddress,
 		fenceWord, 0x4c));
