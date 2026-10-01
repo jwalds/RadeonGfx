@@ -308,6 +308,7 @@ PolarisSmu::LoadUcodes(const char *firmwareDir, const Ucode *ucodes,
 	// read all images first to size the buffer
 	ArrayDeleter<uint8> data[SMU_MAX_ENTRIES];
 	uint64 offsets[SMU_MAX_ENTRIES];
+	uint32 sizes[SMU_MAX_ENTRIES];
 	uint64 total = 0;
 	for (uint32 i = 0; i < count; i++) {
 		BString path;
@@ -321,6 +322,13 @@ PolarisSmu::LoadUcodes(const char *firmwareDir, const Ucode *ucodes,
 		const common_firmware_header &header
 			= *(const common_firmware_header*)data[i].Get();
 		offsets[i] = total;
+		sizes[i] = header.ucode_size_bytes;
+		if (ucodes[i].id == UCODE_ID_CP_MEC) {
+			// amdgpu_cgs_get_firmware_info(): MEC without its jump table
+			uint32 jtOffset = *(const uint32*)(data[i].Get() + 36);
+			if (jtOffset != 0 && jtOffset * 4 <= sizes[i])
+				sizes[i] = jtOffset * 4;
+		}
 		total += (header.ucode_size_bytes + B_PAGE_SIZE - 1)
 			& ~(uint64)(B_PAGE_SIZE - 1);
 	}
@@ -350,7 +358,7 @@ PolarisSmu::LoadUcodes(const char *firmwareDir, const Ucode *ucodes,
 		entry.version = (uint16)header.ucode_version;
 		entry.image_addr_high = address >> 32;
 		entry.image_addr_low = (uint32)address;
-		entry.data_size_byte = header.ucode_size_bytes;
+		entry.data_size_byte = sizes[i];
 		entry.flags = (ucodes[i].id == UCODE_ID_RLC_G
 			|| ucodes[i].id == UCODE_ID_CP_MEC) ? 1 : 0;
 		mask |= 1u << ucodes[i].id;
