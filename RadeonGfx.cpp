@@ -93,6 +93,17 @@ int main(int argc, char** argv)
 		// writing into memory of a dead team
 		signal(SIGINT, [](int) {be_app->PostMessage(B_QUIT_REQUESTED);});
 		signal(SIGTERM, [](int) {be_app->PostMessage(B_QUIT_REQUESTED);});
+		// a crashing server must not leave the GPU writing to freed memory
+		for (int crashSignal : {SIGABRT, SIGSEGV, SIGBUS, SIGILL, SIGFPE}) {
+			signal(crashSignal, [](int number) {
+				if (gDevice.IsPolarisServer() && gDevice.RegsWritable())
+					PolarisEmergencyStop();
+				const char message[] = "[!] server crashed, GPU halted\n";
+				write(STDOUT_FILENO, message, sizeof(message) - 1);
+				signal(number, SIG_DFL);
+				raise(number);
+			});
+		}
 		FileDescriptorCloser fd;
 		BString path;
 		if (OpenRenderDevice(fd, path) < B_OK) {

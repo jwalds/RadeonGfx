@@ -17,6 +17,8 @@
 #include "vi/gmc_8_1_d.h"
 #include "vi/bif_5_0_d.h"
 #include "vi/bif_5_0_sh_mask.h"
+#include "vi/oss_3_0_d.h"
+#include "vi/oss_3_0_sh_mask.h"
 
 #define CheckRet(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
@@ -201,4 +203,25 @@ RadeonDevice::FiniPolarisServer()
 	if (fSmu.IsSet())
 		printf("SMU:       %" B_PRIu32 " C\n", fSmu->Temperature());
 	printf("server:    Polaris stopped\n");
+}
+
+
+/*!	Called from a crash signal handler: no locks, no allocations. Stops
+	everything that could still write to memory of the dying team (command
+	processors, interrupt ring), so the GPU can't corrupt memory the kernel
+	hands out again. The registers aren't restored; the next server start
+	initializes the GPU anew.
+*/
+void
+PolarisEmergencyStop()
+{
+	WriteReg4AmdGpu(mmCP_INT_CNTL_RING0, 0);
+	WriteReg4AmdGpu(mmCP_ME_CNTL, CP_ME_CNTL__ME_HALT_MASK
+		| CP_ME_CNTL__PFP_HALT_MASK | CP_ME_CNTL__CE_HALT_MASK);
+	WriteReg4AmdGpu(mmCP_MEC_CNTL, CP_MEC_CNTL__MEC_ME1_HALT_MASK
+		| CP_MEC_CNTL__MEC_ME2_HALT_MASK);
+	WriteReg4AmdGpu(mmIH_RB_CNTL, ReadReg4AmdGpu(mmIH_RB_CNTL)
+		& ~IH_RB_CNTL__RB_ENABLE_MASK);
+	WriteReg4AmdGpu(mmIH_CNTL, ReadReg4AmdGpu(mmIH_CNTL)
+		& ~IH_CNTL__ENABLE_INTR_MASK);
 }

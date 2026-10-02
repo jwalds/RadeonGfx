@@ -16,6 +16,7 @@ struct IndirectBufferDef {
 	uint64 offset;
 	uint64 va;
 	uint64 vaRemapped;
+	bool remapped = false;
 	uint64 size;
 };
 

@@ -107,6 +107,7 @@ public:
 	// info queries (polaris/PolarisServer.cpp)
 	status_t InitPolarisServer(int fd);
 	void FiniPolarisServer();
+	bool IsPolarisServer() {return fPolarisServer;}
 
 	radeon_shared_info *SharedInfo() {return fSharedInfo;}
 	uint8 *Regs() {return fRegs;}
@@ -129,3 +130,6 @@ public:
 
 
 extern RadeonDevice gDevice;
+
+// halts the GPU's command processors and interrupt ring, signal safe
+void PolarisEmergencyStop();

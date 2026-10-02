@@ -30,6 +30,9 @@ CommandSubmission::~CommandSubmission()
 	//printf("-%p.CommandSubmission()\n", this);
 	for (uint32 i = 0; i < indBufCnt; i++) {
 		IndirectBufferDef &ib = indBufs[i];
+		// a submission rejected while parsing was never remapped
+		if (!ib.remapped)
+			continue;
 		uint64 sizeAligned = RoundUp<uint64>(ib.size, B_PAGE_SIZE);
 		teamState->fVirtMemPool.Free(ib.vaRemapped);
 		if (teamState->fAddressSpace->Unmap(NULL, ib.vaRemapped, 0, sizeAligned) < B_OK) abort();
@@ -80,8 +83,10 @@ status_t CommandSubmission::Remap()
 		if (status < B_OK) {
 			printf("[!] CS: remapping the IB at %#" B_PRIx64 " to %#" B_PRIx64
 				" failed\n", ib.va, ib.vaRemapped);
+			teamState->fVirtMemPool.Free(ib.vaRemapped);
 			return status;
 		}
+		ib.remapped = true;
 	}
 	return B_OK;
 }

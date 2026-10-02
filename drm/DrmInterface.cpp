@@ -15,6 +15,7 @@ extern "C" {
 #include <libdrm/amdgpu_drm.h>
 }
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <syscalls.h>
 #include "polaris/PolarisDrmInfo.h"
@@ -494,6 +495,11 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 				uint32 waitIdx = 0, signalIdx = 0;
 
 				for (size_t i = 0; i < args->in.num_chunks; i++) {
+					static const bool trace = getenv("RADEONGFX_TRACE") != NULL;
+					if (trace) {
+						printf("  CS chunk %" B_PRIu32 ", %" B_PRIu32 " dwords\n",
+							chunks[i]->chunk_id, chunks[i]->length_dw);
+					}
 					switch(chunks[i]->chunk_id) {
 						case AMDGPU_CHUNK_ID_IB: {
 							auto ib = (struct drm_amdgpu_cs_chunk_ib*)chunks[i]->chunk_data;
@@ -507,7 +513,10 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 							auto fence = (struct drm_amdgpu_cs_chunk_fence*)chunks[i]->chunk_data;
 							//printf("  AMDGPU_CHUNK_ID_FENCE: (handle: %" B_PRIu32 ", offset: %#" B_PRIx64 ")\n", fence->handle, fence->offset);
 							cs->userFence.buffer = teamState.Switch()->ThisBuffer(fence->handle);
-							if (!cs->userFence.buffer.IsSet()) return ENOENT;
+							if (!cs->userFence.buffer.IsSet()) {
+								printf("[!] CS: fence buffer %" B_PRIu32 " unknown\n", fence->handle);
+								return ENOENT;
+							}
 							cs->userFence.offset = fence->offset;
 							break;
 						}
@@ -517,6 +526,7 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 								//printf("  waitSyncobjs[%" B_PRIu32 "]: (%" B_PRIu32 ", %" B_PRIu64 ")\n", waitIdx, syncobj->handle, syncobj->point);
 								cs->waitSyncobjs[waitIdx] = teamState.Switch()->ThisSyncobj(syncobj->handle);
 								if (!cs->waitSyncobjs[waitIdx].IsSet()) {
+									printf("[!] CS: wait syncobj %" B_PRIu32 " unknown\n", syncobj->handle);
 									return ENOENT;
 								}
 								cs->waitPoints[waitIdx] = syncobj->point;
@@ -530,7 +540,10 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 							for (size_t j = 0; j < chunks[i]->length_dw; j += sizeof(struct drm_amdgpu_cs_chunk_syncobj) / 4) {
 								//printf("  signalSyncobjs[%" B_PRIu32 "]: (%" B_PRIu32 ", %" B_PRIu64 ")\n", signalIdx, syncobj->handle, syncobj->point);
 								cs->signalSyncobjs[signalIdx] = teamState.Switch()->ThisSyncobj(syncobj->handle);
-								if (!cs->signalSyncobjs[signalIdx].IsSet()) return ENOENT;
+								if (!cs->signalSyncobjs[signalIdx].IsSet()) {
+									printf("[!] CS: signal syncobj %" B_PRIu32 " unknown\n", syncobj->handle);
+									return ENOENT;
+								}
 								cs->signalPoints[signalIdx] = syncobj->point;
 								signalIdx++;
 								syncobj++;
@@ -544,7 +557,11 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 							for (size_t j = 0; j < boList->bo_number; j++) {
 								uint32 bufHandle = *(int32_t*)((char*)boList->bo_info_ptr + j*boList->bo_info_size);
 								cs->buffers[j] = teamState.Switch()->ThisBuffer(bufHandle);
-								if (!cs->buffers[j].IsSet()) return ENOENT;
+								if (!cs->buffers[j].IsSet()) {
+									printf("[!] CS: buffer %" B_PRIu32 " (%" B_PRIu32 " of %" B_PRIu32 ") unknown\n",
+										bufHandle, (uint32)j, (uint32)boList->bo_number);
+									return ENOENT;
+								}
 							}
 							break;
 						}
