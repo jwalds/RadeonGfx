@@ -334,8 +334,10 @@ PolarisGfx::InitHardware(uint64 ringAddress, uint32 ringDwords,
 	uint32 bufSize = OrderBase2(ringDwords * 4 / 8);
 	uint32 rbCntl = SET_FIELD(0, CP_RB0_CNTL, RB_BUFSZ, bufSize);
 	rbCntl = SET_FIELD(rbCntl, CP_RB0_CNTL, RB_BLKSZ, bufSize - 2);
-	// as Linux: no MTYPE (UC fetches from a ring in system memory never
-	// returned data) and no MIN_IB_AVAILSZ
+	// as in the working bring-up test (ring in VRAM); Linux leaves both 0,
+	// but its rings are in system memory
+	rbCntl = SET_FIELD(rbCntl, CP_RB0_CNTL, MTYPE, 3);
+	rbCntl = SET_FIELD(rbCntl, CP_RB0_CNTL, MIN_IB_AVAILSZ, 1);
 	WriteReg4AmdGpu(mmCP_RB0_CNTL, rbCntl);
 
 	WriteReg4AmdGpu(mmCP_RB0_CNTL, rbCntl | CP_RB0_CNTL__RB_RPTR_WR_ENA_MASK);

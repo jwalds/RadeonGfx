@@ -3,6 +3,7 @@
 #include "RadeonDevice.h"
 #include "polaris/PolarisGfx.h"
 #include "polaris/PolarisGfxPackets.h"
+#include "polaris/PolarisSdma.h"
 
 #include <stdio.h>
 #include <new>
@@ -20,6 +21,9 @@ private:
 protected:
 	status_t Start() override;
 	status_t Stop() override;
+	// fetching the ring from system memory stalled (UC: no data; default
+	// MTYPE: CE/DE stuck); the bring-up tests ran it from VRAM
+	MemoryDomain RingDomain() const override {return boDomainVramMappable;}
 
 public:
 	RadeonRingBufferGfxV8(RingType type);
@@ -95,6 +99,8 @@ void
 RadeonRingBufferGfxV8::SetWptr(uint32 val)
 {
 	__sync_synchronize();
+	// the ring is written through the BAR
+	PolarisFlushHdp();
 	WriteReg4AmdGpu(mmCP_RB0_WPTR, val / 4);
 	ReadReg4AmdGpu(mmCP_RB0_WPTR);
 }

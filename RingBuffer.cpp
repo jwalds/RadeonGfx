@@ -31,7 +31,7 @@ RadeonRingBuffer::~RadeonRingBuffer()
 
 status_t RadeonRingBuffer::Init(uint32 size)
 {
-	fBuffer.SetTo(gDevice.MemMgr().Switch()->Alloc(boDomainGtt, size));
+	fBuffer.SetTo(gDevice.MemMgr().Switch()->Alloc(RingDomain(), size));
 	if (!fBuffer.buf.IsSet()) return B_NO_MEMORY;
 	fSize = fBuffer.buf->size / 4;
 	fRptr = 0;

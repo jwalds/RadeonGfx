@@ -60,6 +60,8 @@ protected:
 	MappedBuffer fBuffer;
 
 	virtual status_t Start() = 0;
+	// where Init() allocates the ring
+	virtual MemoryDomain RingDomain() const {return boDomainGtt;}
 	virtual status_t Stop() = 0;
 
 public: // !!! used in GetDmaPacketIb
