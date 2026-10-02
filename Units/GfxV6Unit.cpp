@@ -170,7 +170,7 @@ uint32 RadeonRingBufferGfx::Rptr() {return (*fRptrAdr)*4 /* ReadReg4AmdGpu(fRegs
 uint32 RadeonRingBufferGfx::Wptr() {return ReadReg4AmdGpu(fRegs.rbWptr)*4;}
 void   RadeonRingBufferGfx::SetWptr(uint32 val) {WriteReg4AmdGpu(fRegs.rbWptr, val/4); Wptr();}
 void   RadeonRingBufferGfx::WriteFence2() {GenFence(*this, fFenceGpuAdr, Wseq(), {.intr = true});}
-void   RadeonRingBufferGfx::WriteUserFence(uint64 adr, uint64 seq) {GenFence(*this, adr, seq, {.is64Bit = true});}
+void   RadeonRingBufferGfx::WriteUserFence(uint64 adr, uint64 seq) {GenFence(*this, adr, (uint32)seq, {.is64Bit = true});}
 void   RadeonRingBufferGfx::WriteIb(uint64 adr, uint32 count, uint32 vmId) {GenIbFlushCaches(*this, adr, count, vmId);}
 void   RadeonRingBufferGfx::WriteVmFlush(uint32 vmId, uint64 pdAdr) {GenFlushVm(*this, vmId, pdAdr);}
 
