@@ -123,7 +123,9 @@ status_t RadeonDevice::InitPolaris(int fd, bool writableRegisters)
 	fRegsWritable = writableRegisters;
 
 	fFrameBufferArea.SetTo(clone_area("radeon hd frame buffer",
-		(void**)&fFrameBuffer, B_ANY_ADDRESS, B_READ_AREA | B_WRITE_AREA,
+		(void**)&fFrameBuffer, B_ANY_ADDRESS,
+		// clients map CPU visible VRAM by cloning this area (radeonMmapMsg)
+		B_READ_AREA | B_WRITE_AREA | B_CLONEABLE_AREA,
 		fGpuInfo.frame_buffer_area));
 	if (!fFrameBufferArea.IsSet()) return fFrameBufferArea.Get();
 
