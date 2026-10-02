@@ -8,7 +8,6 @@
 #include "gmc_6_0_d.h"
 #include "oss_1_0_d.h"
 #include "sid_amdgpu.h"
-#include "polaris/PolarisDrmInfo.h"
 #define _DEFAULT_SOURCE
 extern "C" {
 #include <xf86drm.h>
@@ -18,6 +17,7 @@ extern "C" {
 #include <stdio.h>
 #include <string.h>
 #include <syscalls.h>
+#include "polaris/PolarisDrmInfo.h"
 
 
 ExternalPtr<TeamState> gTeamState;

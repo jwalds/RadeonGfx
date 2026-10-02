@@ -2,6 +2,12 @@
 
 #include <SupportDefs.h>
 
+// the ioctl macros in drm.h need the BSD/default definitions
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE
+#endif
+#include <sys/ioctl.h>
+
 extern "C" {
 #include <libdrm/amdgpu_drm.h>
 }
