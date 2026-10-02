@@ -4,6 +4,7 @@
 #include "FenceGroup.h"
 #include "bif_3_0_d.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 
 static void Accumulate(BReference<Fence> &dst, BReference<Fence> src)
@@ -95,6 +96,17 @@ void CommandSubmission::WaitHandler::Do(Fence *fence)
 		//bigtime_t t1 = system_time();
 		ring->Begin(cmdSize); // can lock
 		//GenFlushHdp(*ring);
+		static const bool trace = getenv("RADEONGFX_TRACE") != NULL;
+		if (trace) {
+			printf("CS seq %" B_PRIu64 ": VMID %" B_PRId32 ", page directory %#"
+				B_PRIx64 ", %" B_PRIu32 " IB(s):", (uint64)cs->seq, vmId,
+				ts->fAddressSpace->PageDir(), cs->indBufCnt);
+			for (uint32 i = 0; i < cs->indBufCnt; i++) {
+				printf(" %#" B_PRIx64 " (%" B_PRIu64 " dwords)",
+					cs->indBufs[i].vaRemapped, (uint64)cs->indBufs[i].size / 4);
+			}
+			printf("\n");
+		}
 		ring->WriteVmFlush(vmId, ts->fAddressSpace->PageDir());
 		for (uint32 i = 0; i < cs->indBufCnt; i++) {
 			ring->WriteIb(cs->indBufs[i].vaRemapped, cs->indBufs[i].size/4, vmId);
