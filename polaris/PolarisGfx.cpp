@@ -14,7 +14,6 @@
 #include "vi/gmc_8_1_sh_mask.h"
 #include "vi/gfx_8_0_sh_mask.h"
 #include "vi/vid.h"
-#include "vi/clearstate_vi.h"
 #include "PolarisGfxPackets.h"
 
 // gfx_8_0_enum.h
