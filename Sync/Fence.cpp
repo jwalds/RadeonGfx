@@ -133,8 +133,10 @@ SignaledFence::SignaledFence():
 
 BReference<SignaledFence> SignaledFence::Instance()
 {
-	static SignaledFence fence;
-	return BReference<SignaledFence>(&fence);
+	// never destroyed: references can still exist at exit, and destroying a
+	// referenced BReferenceable enters the debugger
+	static SignaledFence *fence = new SignaledFence();
+	return BReference<SignaledFence>(fence);
 }
 
 WaitInfoBase::~WaitInfoBase()
