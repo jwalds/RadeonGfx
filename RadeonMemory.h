@@ -134,7 +134,8 @@ private:
 	bool fGartRegistersSaved = false;
 	MappedBuffer fGartPageTable;
 	// Polaris: VRAM addresses in page table entries count from the start of
-	// VRAM (Linux amdgpu_gmc_vram_mc2pa()), not from its MC address
+	// VRAM (Linux amdgpu_vm_update_range() with vram_base_offset 0), not from
+	// its MC address; page directory entries use the MC address
 	uint64 fVramPteBase = 0;
 	BReference<BufferObject> fEmptyPageDir;
 

@@ -76,8 +76,10 @@ Pte *AddressSpace::LookupPte(uint64 virtAdr, bool alloc)
 		memset(fPageTableBufs[pdeIdx].adr, 0, fPageTableBufs[pdeIdx].buf->size);
 		*pde = Pte{
 			.flags = R600_PTE_VALID,
-			.ppn = gDevice.MemMgr().Switch()->VramPteAddress(
-				fPageTableBufs[pdeIdx].buf->gpuPhysAdr) / B_PAGE_SIZE
+			// page directory entries hold the MC address (Linux
+			// amdgpu_gmc_get_pde_for_bo()), page table entries for VRAM the
+			// offset in VRAM (VramPteAddress())
+			.ppn = fPageTableBufs[pdeIdx].buf->gpuPhysAdr / B_PAGE_SIZE
 		};
 	}
 	return (Pte*)fPageTableBufs[pdeIdx].adr + pteIdx;
