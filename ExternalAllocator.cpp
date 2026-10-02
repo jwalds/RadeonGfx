@@ -102,7 +102,10 @@ bool ExternalAllocator::AllocAt(uint64_t ptr, uint64_t size)
 void ExternalAllocator::Free(uint64_t ptr)
 {
 	Block *block = fAdrMap.Find(ptr);
-	if (block == NULL || !block->fAllocated) abort();
+	if (block == NULL || !block->fAllocated) {
+		printf("[!] ExternalAllocator::Free(%#" B_PRIx64 "): not allocated\n", (uint64)ptr);
+		abort();
+	}
 	fSizeMap.Insert(block);
 	block->fAllocated = false;
 	fAllocSize -= block->fSize;

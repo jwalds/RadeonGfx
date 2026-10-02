@@ -40,7 +40,10 @@ status_t CommandSubmission::Schedule()
 {
 	fence.SetTo(new RingFence(), true);
 	fence->OnSignal(&handler);
-	if (Remap() < B_OK) abort();
+	if (Remap() < B_OK) {
+		printf("[!] CS: Remap() failed\n");
+		abort();
+	}
 	//CheckRet(cs->Remap());
 
 	waitFenceGroup = SignaledFence::Instance();
@@ -62,9 +65,23 @@ status_t CommandSubmission::Remap()
 		uint64 sizeAligned = RoundUp<uint64>(ib.size, B_PAGE_SIZE);
 		uint64 offset;
 		ib.buf = teamState->fAddressSpace->Lookup(ib.va, offset);
-		if (!ib.buf.IsSet()) return B_ERROR;
-		if (!teamState->fVirtMemPool.Alloc(ib.vaRemapped, sizeAligned)) return B_ERROR;
-		CheckRet(teamState->fAddressSpace->Map(ib.buf, ib.vaRemapped, offset, sizeAligned));
+		if (!ib.buf.IsSet()) {
+			printf("[!] CS: IB at %#" B_PRIx64 " (%" B_PRIu64 " bytes) not mapped\n",
+				ib.va, (uint64)ib.size);
+			return B_ERROR;
+		}
+		if (!teamState->fVirtMemPool.Alloc(ib.vaRemapped, sizeAligned)) {
+			printf("[!] CS: no address space to remap an IB of %" B_PRIu64 " bytes\n",
+				sizeAligned);
+			return B_ERROR;
+		}
+		status_t status = teamState->fAddressSpace->Map(ib.buf, ib.vaRemapped,
+			offset, sizeAligned);
+		if (status < B_OK) {
+			printf("[!] CS: remapping the IB at %#" B_PRIx64 " to %#" B_PRIx64
+				" failed\n", ib.va, ib.vaRemapped);
+			return status;
+		}
 	}
 	return B_OK;
 }
@@ -131,7 +148,10 @@ void CommandSubmission::FenceResolvedReq::Do(Object *obj)
 	ts->fCsSeq = Base().seq;
 	//printf("TeamState::Resolved(%" B_PRIu32 ")\n", Base().seq);
 	auto it = ts->fCmdSubs.find((uint32)Base().seq);
-	if (it == ts->fCmdSubs.end()) abort();
+	if (it == ts->fCmdSubs.end()) {
+		printf("[!] CS: resolved submission %" B_PRIu64 " unknown\n", (uint64)Base().seq);
+		abort();
+	}
 	ts->fCmdSubs.erase(it);
 	ts->fAddressSpace->ReleaseVmid();
 }
