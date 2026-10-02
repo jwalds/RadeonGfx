@@ -38,6 +38,7 @@ public:
 	// halts the CP and restores the registers (PolarisGfx::Fini())
 	void Shutdown() {Stop();}
 	void PrintState() {fGfx.PrintState();}
+	void PrintVmFaults() {fGfx.PrintVmFaults();}
 };
 
 
@@ -210,6 +211,14 @@ GfxV8Unit::FiniHardware2()
 		auto ring = fGfxRings[0].Switch();
 		auto gfxRing = static_cast<RadeonRingBufferGfxV8*>(
 			(RadeonRingBuffer*)ring);
+		if (gfxRing->Rseq() != gfxRing->Wseq()) {
+			// unfinished work: what the GPU was doing
+			printf("[!] GFX: fence %" B_PRIu32 " of %" B_PRIu32 " reached, ring"
+				" rptr %#" B_PRIx32 " wptr %#" B_PRIx32 "\n", gfxRing->Rseq(),
+				gfxRing->Wseq(), gfxRing->Rptr() / 4, gfxRing->Wptr() / 4);
+			gfxRing->PrintState();
+			gfxRing->PrintVmFaults();
+		}
 		gfxRing->EnableEopInterrupt(false);
 		gfxRing->Shutdown();
 	}
