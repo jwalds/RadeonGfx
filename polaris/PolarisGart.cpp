@@ -260,6 +260,20 @@ MemoryManager::InitGartPolaris(bool vmContexts)
 				* B_PAGE_SIZE >> 30);
 	}
 
+	// clear fault status left from earlier runs (Linux gmc_v8_0_process_interrupt())
+	WriteReg4AmdGpu(mmVM_CONTEXT0_CNTL2,
+		ReadReg4AmdGpu(mmVM_CONTEXT0_CNTL2) | 1);
+	WriteReg4AmdGpu(mmVM_CONTEXT1_CNTL2,
+		ReadReg4AmdGpu(mmVM_CONTEXT1_CNTL2) | 1);
+	snooze(10);
+	WriteReg4AmdGpu(mmVM_CONTEXT0_CNTL2,
+		ReadReg4AmdGpu(mmVM_CONTEXT0_CNTL2) & ~1u);
+	WriteReg4AmdGpu(mmVM_CONTEXT1_CNTL2,
+		ReadReg4AmdGpu(mmVM_CONTEXT1_CNTL2) & ~1u);
+	printf("VM:        fault status context 0 %#" B_PRIx32 ", context 1 %#"
+		B_PRIx32 "\n", ReadReg4AmdGpu(mmVM_CONTEXT0_PROTECTION_FAULT_STATUS),
+		ReadReg4AmdGpu(mmVM_CONTEXT1_PROTECTION_FAULT_STATUS));
+
 	GartFlushTlb();
 	fGartEnabled = true;
 	fDomainPools[boDomainGtt].Register(fGttRange.beg, fGttRange.size);

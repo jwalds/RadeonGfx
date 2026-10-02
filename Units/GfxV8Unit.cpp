@@ -37,6 +37,9 @@ public:
 	void EnableEopInterrupt(bool enable) {fGfx.EnableEopInterrupt(enable);}
 	// halts the CP and restores the registers (PolarisGfx::Fini())
 	void Shutdown() {Stop();}
+	// the ring in system memory works: register write, memory write, read
+	// pointer write-back, fence
+	status_t SelfTest();
 	void PrintState() {fGfx.PrintState();}
 	void PrintVmFaults() {fGfx.PrintVmFaults();}
 };
@@ -125,6 +128,52 @@ RadeonRingBufferGfxV8::WriteVmFlush(uint32 vmId, uint64 pdAdr)
 }
 
 
+status_t
+RadeonRingBufferGfxV8::SelfTest()
+{
+	uint64 scratchGpu;
+	void *scratchCpu;
+	CheckRet(gDevice.MemMgr().Switch()->AllocWriteback(scratchGpu, scratchCpu,
+		sizeof(uint32)));
+	volatile uint32 *scratch = (volatile uint32*)scratchCpu;
+	*scratch = 0;
+	WriteReg4AmdGpu(mmSCRATCH_REG0, 0xcafedead);
+	uint32 fenceBefore = *fFenceAdr;
+
+	CheckRet(Begin(64));
+	Write(PACKET3(PACKET3_SET_UCONFIG_REG, 1));
+	Write(mmSCRATCH_REG0 - PACKET3_SET_UCONFIG_REG_START);
+	Write(0xdeadbeef);
+	Write(PACKET3(PACKET3_WRITE_DATA, 3));
+	Write(WRITE_DATA_DST_SEL(5) | WR_CONFIRM | WRITE_DATA_ENGINE_SEL(0));
+	Write((uint32)scratchGpu);
+	Write((uint32)(scratchGpu >> 32));
+	Write(0x12345678);
+	GenFenceV8(*this, fFenceGpuAdr, 0x5e1f, false, false);
+	End();
+
+	bigtime_t start = system_time();
+	while (*fFenceAdr != 0x5e1f && system_time() - start < 200000)
+		snooze(100);
+	bool ok = ReadReg4AmdGpu(mmSCRATCH_REG0) == 0xdeadbeef
+		&& *scratch == 0x12345678 && *fFenceAdr == 0x5e1f;
+	printf("GFX:       ring self test: scratch register %#" B_PRIx32
+		", memory %#" B_PRIx32 ", fence %#" B_PRIx32 " (was %#" B_PRIx32
+		"), rptr %#" B_PRIx32 " / register %#" B_PRIx32 ", wptr %#" B_PRIx32
+		": %s\n", ReadReg4AmdGpu(mmSCRATCH_REG0), *scratch, *fFenceAdr,
+		fenceBefore, *fRptrAdr, ReadReg4AmdGpu(mmCP_RB0_RPTR), fWptr,
+		ok ? "OK" : "[!] FAILED");
+	if (!ok) {
+		fGfx.PrintState();
+		fGfx.PrintVmFaults();
+	}
+	// the fence slot belongs to the ring's sequence numbers
+	*fFenceAdr = fenceBefore;
+	gDevice.MemMgr().Switch()->FreeWriteback(scratchGpu);
+	return ok ? B_OK : B_ERROR;
+}
+
+
 // #pragma mark - GfxV8Unit
 
 class GfxV8Unit: public GfxUnit {
@@ -182,6 +231,11 @@ GfxV8Unit::InitHardware2()
 		return B_NO_MEMORY;
 	CheckRet(fGfxRings[0].Switch()->Init(kRingSize));
 	Device()->InitRing(RADEON_RING_TYPE_GFX_INDEX, fGfxRings[0]);
+	{
+		auto ring = fGfxRings[0].Switch();
+		CheckRet(static_cast<RadeonRingBufferGfxV8*>((RadeonRingBuffer*)ring)
+			->SelfTest());
+	}
 
 	// CP end of pipe: fences of gfx ring 0
 	gDevice.IntRing().Switch()->InstallHandler(0, intSrcIdCpEop,
