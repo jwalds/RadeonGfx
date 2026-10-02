@@ -20,6 +20,8 @@
 #include "PolarisGfxTest.h"
 #include "RenderDevice.h"
 #include <string.h>
+#include <signal.h>
+#include <Application.h>
 
 #define CheckRet(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
@@ -87,6 +89,10 @@ int main(int argc, char** argv)
 	if (argc >= 2 && strcmp(argv[1], "server") == 0
 		&& (argc < 3 || strcmp(argv[argc - 1], "--si") != 0)) {
 		RadeonInitServer();
+		// stop the GPU cleanly on ^C or kill: the engines must not keep
+		// writing into memory of a dead team
+		signal(SIGINT, [](int) {be_app->PostMessage(B_QUIT_REQUESTED);});
+		signal(SIGTERM, [](int) {be_app->PostMessage(B_QUIT_REQUESTED);});
 		FileDescriptorCloser fd;
 		BString path;
 		if (OpenRenderDevice(fd, path) < B_OK) {
