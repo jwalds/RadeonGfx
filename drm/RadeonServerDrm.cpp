@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdlib.h>
 #include "RadeonServerDrm.h"
 #include "RadeonServer.h"
 #include "DrmInterface.h"
@@ -38,6 +39,9 @@ void RadeonHandleDrmMessage(BPrivate::PortLink &link, ExternalRef<TeamState> sta
 			uint32_t request;
 			link.Read(&fd);
 			link.Read(&request);
+			static const bool trace = getenv("RADEONGFX_TRACE") != NULL;
+			if (trace)
+				printf("ioctl %#" B_PRIx32 "\n", request);
 			uint32_t requestCmd = request%0x100;
 			if (requestCmd >= DRM_COMMAND_BASE && requestCmd < DRM_COMMAND_END) {
 				requestCmd -= DRM_COMMAND_BASE;
