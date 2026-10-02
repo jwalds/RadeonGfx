@@ -537,8 +537,11 @@ status_t MemoryManager::GartMap(BReference<BufferObject> buffer)
 	for (uint64 offset = 0; offset < buffer->size; offset += B_PAGE_SIZE) {
 		uint64 cpuPhysAdr;
 		CheckRet(gPoke.GetPhysicalAddress(cpuPhysAdr, cpuVirtAdr + offset, B_PAGE_SIZE));
+		// Polaris: command processor fetches (ring, IBs) are execute accesses;
+		// without the bit they fault (protection 0x20) to the dummy page
+		uint32 executable = gDevice.IsPolaris() ? R600_PTE_EXECUTABLE : 0;
 		Pte pte{
-			.flags = R600_PTE_VALID | R600_PTE_SYSTEM | R600_PTE_READABLE | R600_PTE_WRITEABLE | R600_PTE_SNOOPED,
+			.flags = R600_PTE_VALID | R600_PTE_SYSTEM | R600_PTE_READABLE | R600_PTE_WRITEABLE | R600_PTE_SNOOPED | executable,
 			.ppn = cpuPhysAdr / B_PAGE_SIZE
 		};
 		pageTableVirtAdr[(buffer->gpuPhysAdr - fGttRange.beg + offset) / B_PAGE_SIZE] = pte;
