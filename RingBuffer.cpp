@@ -135,6 +135,14 @@ void RadeonRingBuffer::UpdateFences()
 }
 
 
+void RadeonRingBuffer::WriteUserFence(uint64 adr, uint64 seq)
+{
+	(void)adr;
+	(void)seq;
+	printf("[!] RadeonRingBuffer::WriteUserFence(): not supported by this ring\n");
+}
+
+
 // #pragma mark - RingFence
 
 RingFence::RingFence(): ring(NULL)

@@ -2,6 +2,8 @@
 
 #include "RadeonMemory.h"
 
+#include <Path.h>
+
 
 // SMU 7 (Polaris) as in Linux smu7_smumgr.c/polaris10_smumgr.c: start the
 // SMC firmware and have it load engine firmware (direct loading through the
@@ -57,3 +59,7 @@ enum {
 	UCODE_ID_CP_MEC_JT2 = 8,
 	UCODE_ID_RLC_G = 10,
 };
+
+
+// the firmware directory of the RadeonGfx build (<build dir>/../firmware)
+status_t PolarisFirmwareDir(BPath &path);

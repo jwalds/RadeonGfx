@@ -10,7 +10,11 @@ public:
 	PolarisGfx();
 	~PolarisGfx();
 
+	// test mode: own ring in VRAM, clear state emitted
 	status_t Init();
+	// server mode: the caller owns the ring and emits the clear state
+	status_t InitHardware(uint64 ringAddress, uint32 ringDwords,
+		uint64 rptrAddress);
 	void Fini();
 
 	status_t Begin(uint32 dwords);
@@ -23,8 +27,9 @@ public:
 	void DumpWaves(uint32 maxWaves = 4);
 
 	void EnableEopInterrupt(bool enable);
-	// gfx_v8_0_constants_init(): shader memory configuration for VMID 0
+	// gfx_v8_0_constants_init(): shader memory configuration of all VMIDs
 	void SetupShaderMemory();
+	void InitTiling();
 
 	// packets
 	void EmitSetUconfigReg(uint32 reg, uint32 value);

@@ -51,9 +51,17 @@ private:
 
 	status_t ThreadEntry();
 
+protected:
+	status_t StartThread();
+	void StopThread();
+	// hands a vector to its handler, or prints it
+	void Dispatch(InterruptPacket &pkt);
+	// SI: the kernel driver's interrupt semaphore; B_TIMED_OUT if none came
+	virtual status_t WaitForInterrupt();
+
 public:
 	RadeonRingBufferInt();
-	~RadeonRingBufferInt();
+	virtual ~RadeonRingBufferInt();
 	status_t Init(uint64 size);
 	void Enable();
 	void Disable();
@@ -67,5 +75,5 @@ public:
 	void Read(uint32 &val);
 	void ReadPacket(InterruptPacket &pkt);
 
-	bool Handle();
+	virtual bool Handle();
 };

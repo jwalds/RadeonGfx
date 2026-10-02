@@ -100,7 +100,7 @@ void CommandSubmission::WaitHandler::Do(Fence *fence)
 			ring->WriteIb(cs->indBufs[i].vaRemapped, cs->indBufs[i].size/4, vmId);
 		}
 		if (cs->userFence.buffer.IsSet()) {
-			GenFence(*ring, cs->userFence.buffer->gpuPhysAdr + cs->userFence.offset, cs->seq, {.is64Bit = true});
+			ring->WriteUserFence(cs->userFence.buffer->gpuPhysAdr + cs->userFence.offset, cs->seq);
 		}
 		ring->WriteFence(cs->fence);
 		ring->End();

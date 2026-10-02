@@ -1,3 +1,4 @@
+#include <string.h>
 #include "RadeonServerDrm.h"
 #include "RadeonServer.h"
 #include "DrmInterface.h"
@@ -46,6 +47,8 @@ void RadeonHandleDrmMessage(BPrivate::PortLink &link, ExternalRef<TeamState> sta
 						link.Read(&args.return_size);
 						link.Read(&args.query);
 						ArrayDeleter<uint8> returnData(new uint8[args.return_size]);
+						// replies may be shorter than what the client expects
+						memset(returnData.Get(), 0, args.return_size);
 						args.return_pointer = (addr_t)returnData.Get();
 						switch (args.query) {
 							case AMDGPU_INFO_ACCEL_WORKING:

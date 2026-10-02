@@ -10,6 +10,7 @@
 #include "RadeonInit.h"
 #include "RadeonFirmware.h"
 #include "RadeonUnit.h"
+#include "polaris/PolarisSmu.h"
 #include "Units/InstantiateUnits.h"
 #include <RadeonPower.h>
 #include "sid_amdgpu.h"
@@ -64,6 +65,8 @@ RadeonDevice::~RadeonDevice()
 	// The global device is destroyed at exit even if Init() never ran, or
 	// after InitPolaris(); only shut down what the Southern Islands Init()
 	// started.
+	if (fPolarisServer)
+		FiniPolarisServer();
 	if (!fSiInitialized)
 		return;
 

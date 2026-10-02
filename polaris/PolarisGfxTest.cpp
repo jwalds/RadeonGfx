@@ -28,23 +28,6 @@ static const uint32 kSrcIdCpEndOfPipe = 181;
 
 
 static status_t
-FirmwareDir(BPath &path)
-{
-	image_info info;
-	int32 cookie = 0;
-	while (get_next_image_info(B_CURRENT_TEAM, &cookie, &info) == B_OK) {
-		if (info.type != B_APP_IMAGE)
-			continue;
-		CheckRet(path.SetTo(info.name));
-		CheckRet(path.GetParent(&path));
-		CheckRet(path.GetParent(&path));
-		return path.Append("firmware");
-	}
-	return B_ENTRY_NOT_FOUND;
-}
-
-
-static status_t
 Run(PolarisGfx &gfx, const char *what)
 {
 	gfx.Commit();
@@ -408,7 +391,7 @@ PolarisGfxTest(bool allContexts)
 	CheckRet(gDevice.MemMgr().Switch()->InitPolaris());
 
 	BPath firmwareDir;
-	CheckRet(FirmwareDir(firmwareDir));
+	CheckRet(PolarisFirmwareDir(firmwareDir));
 	BPath smcFirmware(firmwareDir.Path(), "polaris11_smc.bin");
 
 	status = gDevice.MemMgr().Switch()->InitGartPolaris(allContexts);

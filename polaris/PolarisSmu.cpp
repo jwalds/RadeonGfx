@@ -7,6 +7,7 @@
 #include <File.h>
 #include <OS.h>
 #include <String.h>
+#include <image.h>
 
 #define CheckRet(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
@@ -476,4 +477,21 @@ PolarisSmu::PrintState()
 		ReadIndirect(ixSMC_PC_C), ReadIndirect(ixSMU_STATUS),
 		ReadIndirect(ixSMU_FIRMWARE), ReadIndirect(ixFIRMWARE_FLAGS),
 		ReadIndirect(ixRCU_UC_EVENTS), Temperature());
+}
+
+
+status_t
+PolarisFirmwareDir(BPath &path)
+{
+	image_info info;
+	int32 cookie = 0;
+	while (get_next_image_info(B_CURRENT_TEAM, &cookie, &info) == B_OK) {
+		if (info.type != B_APP_IMAGE)
+			continue;
+		CheckRet(path.SetTo(info.name));
+		CheckRet(path.GetParent(&path));
+		CheckRet(path.GetParent(&path));
+		return path.Append("firmware");
+	}
+	return B_ENTRY_NOT_FOUND;
 }

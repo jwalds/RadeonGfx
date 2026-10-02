@@ -76,7 +76,8 @@ Pte *AddressSpace::LookupPte(uint64 virtAdr, bool alloc)
 		memset(fPageTableBufs[pdeIdx].adr, 0, fPageTableBufs[pdeIdx].buf->size);
 		*pde = Pte{
 			.flags = R600_PTE_VALID,
-			.ppn = fPageTableBufs[pdeIdx].buf->gpuPhysAdr / B_PAGE_SIZE
+			.ppn = gDevice.MemMgr().Switch()->VramPteAddress(
+				fPageTableBufs[pdeIdx].buf->gpuPhysAdr) / B_PAGE_SIZE
 		};
 	}
 	return (Pte*)fPageTableBufs[pdeIdx].adr + pteIdx;
@@ -168,18 +169,21 @@ status_t AddressSpace::Map(BReference<BufferObject> buffer, uint64 mapAdr, uint6
 {
 	size = RoundUp<uint64>(size, B_PAGE_SIZE);
 	uint32 flags = R600_PTE_READABLE | R600_PTE_WRITEABLE;
+	if (gDevice.IsPolaris())
+		flags |= R600_PTE_EXECUTABLE;
 	if (buffer->domain == boDomainGtt) {
 		flags |= R600_PTE_SYSTEM | R600_PTE_SNOOPED;
 		Pte *gartPageTableAdr = (Pte*)gDevice.MemMgr().Switch()->fGartPageTable.adr;
 		for (uint64 ofs = 0; ofs < size; ofs += B_PAGE_SIZE) {
-			uint64 gttAdr = buffer->gpuPhysAdr + ofs - gDevice.MemMgr().Switch()->fGttRange.beg;
+			uint64 gttAdr = buffer->gpuPhysAdr + offset + ofs - gDevice.MemMgr().Switch()->fGttRange.beg;
 			Pte gttPte = gartPageTableAdr[gttAdr/B_PAGE_SIZE];
 			MapInt(mapAdr + ofs, gttPte.ppn*B_PAGE_SIZE, flags);
 		}
 	} else {
 		uint64 virtBeg = mapAdr/B_PAGE_SIZE;
 		uint64 virtEnd = (mapAdr + size)/B_PAGE_SIZE;
-		uint64 physAdr = buffer->gpuPhysAdr;
+		uint64 physAdr = gDevice.MemMgr().Switch()->VramPteAddress(
+			buffer->gpuPhysAdr + offset);
 
 		uint64 fragFlags = R600_PTE_FRAG_64KB;
 		uint64 fragAlign = 0x10;
@@ -187,7 +191,7 @@ status_t AddressSpace::Map(BReference<BufferObject> buffer, uint64 mapAdr, uint6
 		uint64 fragEnd = RoundDown(virtEnd, fragAlign);
 
 		if (fragBeg >= fragEnd) {
-			MapIntRange(mapAdr, buffer->gpuPhysAdr, size, flags);
+			MapIntRange(mapAdr, physAdr, size, flags);
 		} else {
 			uint64 count;
 

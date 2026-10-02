@@ -8,6 +8,7 @@
 #include "gmc_6_0_d.h"
 #include "oss_1_0_d.h"
 #include "sid_amdgpu.h"
+#include "polaris/PolarisDrmInfo.h"
 #define _DEFAULT_SOURCE
 extern "C" {
 #include <xf86drm.h>
@@ -98,6 +99,48 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 		switch (requestCmd) {
 			case DRM_AMDGPU_INFO: {
 				struct drm_amdgpu_info *request = (struct drm_amdgpu_info*)arg;
+				if (gDevice.IsPolaris()) {
+					// the Southern Islands replies below don't fit Polaris
+					void *data = (void*)(addr_t)request->return_pointer;
+					switch (request->query) {
+						case AMDGPU_INFO_DEV_INFO:
+							return PolarisQueryDevInfo(
+								(drm_amdgpu_info_device*)data,
+								request->return_size);
+						case AMDGPU_INFO_HW_IP_INFO:
+							return PolarisQueryHwIp(request->query_hw_ip.type,
+								(drm_amdgpu_info_hw_ip*)data);
+						case AMDGPU_INFO_FW_VERSION:
+							return PolarisQueryFirmware(
+								request->query_fw.fw_type,
+								(drm_amdgpu_info_firmware*)data);
+						case AMDGPU_INFO_MEMORY:
+							return PolarisQueryMemory(
+								(drm_amdgpu_memory_info*)data);
+						case AMDGPU_INFO_READ_MMR_REG: {
+							uint32 se = (request->read_mmr_reg.instance
+									>> AMDGPU_INFO_MMR_SE_INDEX_SHIFT)
+								& AMDGPU_INFO_MMR_SE_INDEX_MASK;
+							uint32 sh = (request->read_mmr_reg.instance
+									>> AMDGPU_INFO_MMR_SH_INDEX_SHIFT)
+								& AMDGPU_INFO_MMR_SH_INDEX_MASK;
+							if (se == AMDGPU_INFO_MMR_SE_INDEX_MASK)
+								se = ~0u;
+							if (sh == AMDGPU_INFO_MMR_SH_INDEX_MASK)
+								sh = ~0u;
+							uint32 *values = (uint32*)data;
+							for (uint32 i = 0; i < request->read_mmr_reg.count;
+									i++) {
+								int res = PolarisReadMmrReg(
+									request->read_mmr_reg.dword_offset + i, se, sh,
+									&values[i]);
+								if (res != 0)
+									return res;
+							}
+							return 0;
+						}
+					}
+				}
 				switch (request->query) {
 					case AMDGPU_INFO_ACCEL_WORKING: {
 						*(uint32_t*)request->return_pointer = 1;

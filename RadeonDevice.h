@@ -33,6 +33,7 @@ class MemoryManager;
 class RadeonRingBuffer;
 class RadeonRingBufferInt;
 class RadeonUnit;
+class PolarisSmu;
 
 
 class RadeonDevice {
@@ -52,6 +53,9 @@ private:
 
 	// set at the end of Init(): the destructor shuts the engines down
 	bool fSiInitialized = false;
+	// Polaris server: engines started by InitPolarisServer()
+	bool fPolarisServer = false;
+	ObjectDeleter<PolarisSmu> fSmu;
 
 	DoublyLinkedList<RadeonUnit> fUnits;
 
@@ -98,6 +102,11 @@ public:
 	// writableRegisters the registers are mapped read-only, so any write
 	// faults instead of reaching the hardware.
 	status_t InitPolaris(int fd, bool writableRegisters);
+	// Polaris GPU server: memory, GART and VM contexts, interrupts, firmware
+	// through the SMU, the graphics ring, and the configuration for the DRM
+	// info queries (polaris/PolarisServer.cpp)
+	status_t InitPolarisServer(int fd);
+	void FiniPolarisServer();
 
 	radeon_shared_info *SharedInfo() {return fSharedInfo;}
 	uint8 *Regs() {return fRegs;}

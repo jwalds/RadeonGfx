@@ -24,6 +24,7 @@ enum MemoryDomain {
 #define R600_PTE_VALID		(1 << 0)
 #define R600_PTE_SYSTEM		(1 << 1)
 #define R600_PTE_SNOOPED	(1 << 2)
+#define R600_PTE_EXECUTABLE	(1 << 4)
 #define R600_PTE_READABLE	(1 << 5)
 #define R600_PTE_WRITEABLE	(1 << 6)
 
@@ -132,6 +133,10 @@ private:
 	bool fGartEnabled;
 	bool fGartRegistersSaved = false;
 	MappedBuffer fGartPageTable;
+	// Polaris: VRAM addresses in page table entries count from the start of
+	// VRAM (Linux amdgpu_gmc_vram_mc2pa()), not from its MC address
+	uint64 fVramPteBase = 0;
+	BReference<BufferObject> fEmptyPageDir;
 
 	BitfieldAllocator fVmidPool;
 	DomainCondVar fFreeVmidCv;
@@ -166,9 +171,11 @@ public:
 	status_t Init();
 	status_t InitPolaris();
 	status_t InitGart();
-	status_t InitGartPolaris(bool allContexts = false);
+	// vmContexts: also enable VM contexts 1-15 for per process address spaces
+	status_t InitGartPolaris(bool vmContexts = false);
 	void FiniGartPolaris();
 	MappedBuffer &GartPageTable() {return fGartPageTable;}
+	uint64 VramPteAddress(uint64 mcAddress) {return mcAddress - fVramPteBase;}
 	bool GartEnabled() {return fGartEnabled;}
 
 	status_t AllocWriteback(uint64 &gpuAdr, void *&cpuAdr, uint64 size);

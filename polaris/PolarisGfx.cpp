@@ -15,11 +15,15 @@
 #include "vi/gfx_8_0_sh_mask.h"
 #include "vi/vid.h"
 #include "vi/clearstate_vi.h"
+#include "PolarisGfxPackets.h"
 
 // gfx_8_0_enum.h
 #define CACHE_FLUSH_AND_INV_TS_EVENT	0x14
 #define CS_PARTIAL_FLUSH				0x7
+static const uint32 kMtypeNc = 1;
 static const uint32 kMtypeUc = 3;
+// gmc_v8_0.c: shared aperture of the per process address spaces
+static const uint64 kSharedApertureBase = 0x2000000000000000ULL;
 static const uint32 kShMemAlignmentModeUnaligned = 3;
 
 #define CheckRet(err) {status_t _err = (err); if (_err < B_OK) return _err;}
@@ -33,6 +37,28 @@ static const uint32 kShMemAlignmentModeUnaligned = 3;
 static const uint32 kMaxHwContexts = 8;
 static const uint32 kRasterConfig = 0x16000012;
 static const uint32 kRasterConfig1 = 0x00000000;
+static const uint32 kScPrimFifoSizeFrontend = 0x20;
+static const uint32 kScPrimFifoSizeBackend = 0x100;
+static const uint32 kScHizTileFifoSize = 0x30;
+static const uint32 kScEarlyzTileFifoSize = 0x130;
+
+// gfx_v8_0_tiling_mode_table_init(), Polaris 11 (computed from Linux' table)
+static const uint32 kTileModes[32] = {
+	0x00800150, 0x00800950, 0x00801150, 0x00801950,
+	0x00802950, 0x00802948, 0x00802954, 0x00802954,
+	0x00000144, 0x02000148, 0x02000150, 0x06000154,
+	0x06000154, 0x02400148, 0x02400150, 0x02400170,
+	0x06400154, 0x06400154, 0x0040014c, 0x0100014c,
+	0x0100015c, 0x01000174, 0x01000164, 0x01000164,
+	0x0040015c, 0x01000160, 0x01000178, 0x02c00148,
+	0x02c00150, 0x06c00154, 0x06c00154, 0x00000000,
+};
+static const uint32 kMacroTileModes[16] = {
+	0x000000e8, 0x000000e8, 0x000000e8, 0x000000e4,
+	0x000000d0, 0x000000d0, 0x000000d0, 0x00000000,
+	0x000000ed, 0x000000e9, 0x000000e8, 0x000000e4,
+	0x000000d0, 0x00000090, 0x00000040, 0x00000000,
+};
 
 // golden_settings_polaris11_a11 and polaris11_golden_common_all:
 // register, mask, value (VI: value is ORed in unmasked)
@@ -79,6 +105,21 @@ static const uint32 kSavedRegisters[] = {
 	mmCP_RB_WPTR_POLL_ADDR_HI, mmCP_RB0_BASE, mmCP_RB0_BASE_HI,
 	mmCP_RB_DOORBELL_CONTROL, mmCP_MAX_CONTEXT, mmCP_ENDIAN_SWAP,
 	mmCP_DEVICE_ID, mmCP_RB0_CNTL,
+	// constants
+	mmPA_SC_FIFO_SIZE, mmSPI_ARB_PRIORITY,
+	mmGB_TILE_MODE0, mmGB_TILE_MODE1, mmGB_TILE_MODE2, mmGB_TILE_MODE3,
+	mmGB_TILE_MODE4, mmGB_TILE_MODE5, mmGB_TILE_MODE6, mmGB_TILE_MODE7,
+	mmGB_TILE_MODE8, mmGB_TILE_MODE9, mmGB_TILE_MODE10, mmGB_TILE_MODE11,
+	mmGB_TILE_MODE12, mmGB_TILE_MODE13, mmGB_TILE_MODE14, mmGB_TILE_MODE15,
+	mmGB_TILE_MODE16, mmGB_TILE_MODE17, mmGB_TILE_MODE18, mmGB_TILE_MODE19,
+	mmGB_TILE_MODE20, mmGB_TILE_MODE21, mmGB_TILE_MODE22, mmGB_TILE_MODE23,
+	mmGB_TILE_MODE24, mmGB_TILE_MODE25, mmGB_TILE_MODE26, mmGB_TILE_MODE27,
+	mmGB_TILE_MODE28, mmGB_TILE_MODE29, mmGB_TILE_MODE30, mmGB_TILE_MODE31,
+	mmGB_MACROTILE_MODE0, mmGB_MACROTILE_MODE1, mmGB_MACROTILE_MODE2,
+	mmGB_MACROTILE_MODE3, mmGB_MACROTILE_MODE4, mmGB_MACROTILE_MODE5,
+	mmGB_MACROTILE_MODE6, mmGB_MACROTILE_MODE8, mmGB_MACROTILE_MODE9,
+	mmGB_MACROTILE_MODE10, mmGB_MACROTILE_MODE11, mmGB_MACROTILE_MODE12,
+	mmGB_MACROTILE_MODE13, mmGB_MACROTILE_MODE14, mmGB_MACROTILE_MODE15,
 	// shader memory (VMID 0, SRBM_GFX_CNTL selects VMID 0)
 	mmSH_STATIC_MEM_CONFIG, mmSH_MEM_CONFIG, mmSH_MEM_BASES,
 	mmSH_MEM_APE1_BASE, mmSH_MEM_APE1_LIMIT,
@@ -196,15 +237,38 @@ PolarisGfx::Init()
 	if (!gDevice.RegsWritable())
 		return B_NOT_ALLOWED;
 
-	auto memMgr = gDevice.MemMgr().Switch();
-	fRingDwords = 16384;
-	fRing.SetTo(memMgr->Alloc(boDomainVramMappable, fRingDwords * 4, 4096));
-	fRptr.SetTo(memMgr->Alloc(boDomainVramMappable, B_PAGE_SIZE));
-	if (fRing.adr == NULL || fRptr.adr == NULL)
-		return B_NO_MEMORY;
-	memset(fRing.adr, 0, fRingDwords * 4);
-	memset(fRptr.adr, 0, B_PAGE_SIZE);
+	{
+		auto memMgr = gDevice.MemMgr().Switch();
+		fRingDwords = 16384;
+		fRing.SetTo(memMgr->Alloc(boDomainVramMappable, fRingDwords * 4,
+			4096));
+		fRptr.SetTo(memMgr->Alloc(boDomainVramMappable, B_PAGE_SIZE));
+		if (fRing.adr == NULL || fRptr.adr == NULL)
+			return B_NO_MEMORY;
+		memset(fRing.adr, 0, fRingDwords * 4);
+		memset(fRptr.adr, 0, B_PAGE_SIZE);
+	}
 	PolarisFlushHdp();
+
+	CheckRet(InitHardware(fRing.buf->gpuPhysAdr, fRingDwords,
+		fRptr.buf->gpuPhysAdr));
+	fWptr = 0;
+	EmitClearState();
+	Commit();
+
+	printf("GFX:       ring %" B_PRIu32 " dwords at %#" B_PRIx64 ", rptr at %#"
+		B_PRIx64 ", CP running\n", fRingDwords, fRing.buf->gpuPhysAdr,
+		fRptr.buf->gpuPhysAdr);
+	return B_OK;
+}
+
+
+status_t
+PolarisGfx::InitHardware(uint64 ringAddress, uint32 ringDwords,
+	uint64 rptrAddress)
+{
+	if (!gDevice.RegsWritable())
+		return B_NOT_ALLOWED;
 
 	for (uint32 i = 0; i < B_COUNT_OF(kSavedRegisters); i++)
 		sSavedValues[i] = ReadReg4AmdGpu(kSavedRegisters[i]);
@@ -230,8 +294,26 @@ PolarisGfx::Init()
 		WriteReg4AmdGpu(kGoldenSettings[i], value);
 	}
 
+	// *** gfx_v8_0_constants_init(), the parts Mesa depends on
+	InitTiling();
+	WriteReg4AmdGpu(mmPA_SC_FIFO_SIZE,
+		(kScPrimFifoSizeFrontend
+			<< PA_SC_FIFO_SIZE__SC_FRONTEND_PRIM_FIFO_SIZE__SHIFT)
+		| (kScPrimFifoSizeBackend
+			<< PA_SC_FIFO_SIZE__SC_BACKEND_PRIM_FIFO_SIZE__SHIFT)
+		| (kScHizTileFifoSize << PA_SC_FIFO_SIZE__SC_HIZ_TILE_FIFO_SIZE__SHIFT)
+		| (kScEarlyzTileFifoSize
+			<< PA_SC_FIFO_SIZE__SC_EARLYZ_TILE_FIFO_SIZE__SHIFT));
+	uint32 value = ReadReg4AmdGpu(mmSPI_ARB_PRIORITY);
+	value = SET_FIELD(value, SPI_ARB_PRIORITY, PIPE_ORDER_TS0, 2);
+	value = SET_FIELD(value, SPI_ARB_PRIORITY, PIPE_ORDER_TS1, 2);
+	value = SET_FIELD(value, SPI_ARB_PRIORITY, PIPE_ORDER_TS2, 2);
+	value = SET_FIELD(value, SPI_ARB_PRIORITY, PIPE_ORDER_TS3, 2);
+	WriteReg4AmdGpu(mmSPI_ARB_PRIORITY, value);
+	SetupShaderMemory();
+
 	// *** gfx_v8_0_rlc_resume(): stop, reset, start (no power gating)
-	uint32 value = ReadReg4AmdGpu(mmRLC_CNTL);
+	value = ReadReg4AmdGpu(mmRLC_CNTL);
 	WriteReg4AmdGpu(mmRLC_CNTL, SET_FIELD(value, RLC_CNTL, RLC_ENABLE_F32, 0));
 	WaitForRlcSerdes();
 	value = ReadReg4AmdGpu(mmGRBM_SOFT_RESET);
@@ -250,7 +332,7 @@ PolarisGfx::Init()
 	WriteReg4AmdGpu(mmCP_RB_WPTR_DELAY, 0);
 	WriteReg4AmdGpu(mmCP_RB_VMID, 0);
 
-	uint32 bufSize = OrderBase2(fRingDwords * 4 / 8);
+	uint32 bufSize = OrderBase2(ringDwords * 4 / 8);
 	uint32 rbCntl = SET_FIELD(0, CP_RB0_CNTL, RB_BUFSZ, bufSize);
 	rbCntl = SET_FIELD(rbCntl, CP_RB0_CNTL, RB_BLKSZ, bufSize - 2);
 	rbCntl = SET_FIELD(rbCntl, CP_RB0_CNTL, MTYPE, 3);
@@ -258,10 +340,8 @@ PolarisGfx::Init()
 	WriteReg4AmdGpu(mmCP_RB0_CNTL, rbCntl);
 
 	WriteReg4AmdGpu(mmCP_RB0_CNTL, rbCntl | CP_RB0_CNTL__RB_RPTR_WR_ENA_MASK);
-	fWptr = 0;
 	WriteReg4AmdGpu(mmCP_RB0_WPTR, 0);
 
-	uint64 rptrAddress = fRptr.buf->gpuPhysAdr;
 	WriteReg4AmdGpu(mmCP_RB0_RPTR_ADDR, (uint32)rptrAddress);
 	WriteReg4AmdGpu(mmCP_RB0_RPTR_ADDR_HI, (rptrAddress >> 32) & 0xff);
 	// write pointer polling isn't used; point it at the same page
@@ -271,9 +351,8 @@ PolarisGfx::Init()
 	snooze(1000);
 	WriteReg4AmdGpu(mmCP_RB0_CNTL, rbCntl);
 
-	uint64 ringAddress = fRing.buf->gpuPhysAdr >> 8;
-	WriteReg4AmdGpu(mmCP_RB0_BASE, (uint32)ringAddress);
-	WriteReg4AmdGpu(mmCP_RB0_BASE_HI, ringAddress >> 32);
+	WriteReg4AmdGpu(mmCP_RB0_BASE, (uint32)(ringAddress >> 8));
+	WriteReg4AmdGpu(mmCP_RB0_BASE_HI, ringAddress >> 40);
 
 	value = ReadReg4AmdGpu(mmCP_RB_DOORBELL_CONTROL);
 	WriteReg4AmdGpu(mmCP_RB_DOORBELL_CONTROL,
@@ -290,56 +369,27 @@ PolarisGfx::Init()
 	value = SET_FIELD(value, CP_ME_CNTL, CE_HALT, 0);
 	WriteReg4AmdGpu(mmCP_ME_CNTL, value);
 	snooze(50);
-
-	EmitClearState();
-	Commit();
-
-	printf("GFX:       ring %" B_PRIu32 " dwords at %#" B_PRIx64 ", rptr at %#"
-		B_PRIx64 ", CP running\n", fRingDwords, fRing.buf->gpuPhysAdr,
-		rptrAddress);
 	return B_OK;
+}
+
+
+void
+PolarisGfx::InitTiling()
+{
+	// gfx_v8_0_tiling_mode_table_init(), Polaris 11
+	for (uint32 i = 0; i < B_COUNT_OF(kTileModes); i++)
+		WriteReg4AmdGpu(mmGB_TILE_MODE0 + i, kTileModes[i]);
+	for (uint32 i = 0; i < B_COUNT_OF(kMacroTileModes); i++) {
+		if (i != 7)
+			WriteReg4AmdGpu(mmGB_MACROTILE_MODE0 + i, kMacroTileModes[i]);
+	}
 }
 
 
 void
 PolarisGfx::EmitClearState()
 {
-	Write(PACKET3(PACKET3_PREAMBLE_CNTL, 0));
-	Write(PACKET3_PREAMBLE_BEGIN_CLEAR_STATE);
-
-	Write(PACKET3(PACKET3_CONTEXT_CONTROL, 1));
-	Write(0x80000000);
-	Write(0x80000000);
-
-	for (const cs_section_def *section = vi_cs_data;
-			section->section != NULL; section++) {
-		for (const cs_extent_def *extent = section->section;
-				extent->extent != NULL; extent++) {
-			if (section->id != SECT_CONTEXT)
-				continue;
-			Write(PACKET3(PACKET3_SET_CONTEXT_REG, extent->reg_count));
-			Write(extent->reg_index - PACKET3_SET_CONTEXT_REG_START);
-			for (uint32 i = 0; i < extent->reg_count; i++)
-				Write(extent->extent[i]);
-		}
-	}
-
-	Write(PACKET3(PACKET3_SET_CONTEXT_REG, 2));
-	Write(mmPA_SC_RASTER_CONFIG - PACKET3_SET_CONTEXT_REG_START);
-	Write(kRasterConfig);
-	Write(kRasterConfig1);
-
-	Write(PACKET3(PACKET3_PREAMBLE_CNTL, 0));
-	Write(PACKET3_PREAMBLE_END_CLEAR_STATE);
-
-	Write(PACKET3(PACKET3_CLEAR_STATE, 0));
-	Write(0);
-
-	// init the CE partitions
-	Write(PACKET3(PACKET3_SET_BASE, 2));
-	Write(PACKET3_BASE_INDEX(CE_PARTITION_BASE));
-	Write(0x8000);
-	Write(0x8000);
+	GenClearState(*this);
 }
 
 
@@ -559,15 +609,24 @@ PolarisGfx::SetupShaderMemory()
 	value = SET_FIELD(value, SH_STATIC_MEM_CONFIG, ELEMENT_SIZE, 1);
 	value = SET_FIELD(value, SH_STATIC_MEM_CONFIG, INDEX_STRIDE, 3);
 	WriteReg4AmdGpu(mmSH_STATIC_MEM_CONFIG, value);
+	for (uint32 vmid = 0; vmid < 16; vmid++) {
+		// vi_srbm_select(): the SH_MEM registers are per VMID
+		WriteReg4AmdGpu(mmSRBM_GFX_CNTL, vmid << SRBM_GFX_CNTL__VMID__SHIFT);
+		if (vmid == 0) {
+			value = SET_FIELD(0, SH_MEM_CONFIG, DEFAULT_MTYPE, kMtypeUc);
+			WriteReg4AmdGpu(mmSH_MEM_BASES, 0);
+		} else {
+			value = SET_FIELD(0, SH_MEM_CONFIG, DEFAULT_MTYPE, kMtypeNc);
+			WriteReg4AmdGpu(mmSH_MEM_BASES, kSharedApertureBase >> 48);
+		}
+		value = SET_FIELD(value, SH_MEM_CONFIG, APE1_MTYPE, kMtypeUc);
+		value = SET_FIELD(value, SH_MEM_CONFIG, ALIGNMENT_MODE,
+			kShMemAlignmentModeUnaligned);
+		WriteReg4AmdGpu(mmSH_MEM_CONFIG, value);
+		WriteReg4AmdGpu(mmSH_MEM_APE1_BASE, 1);
+		WriteReg4AmdGpu(mmSH_MEM_APE1_LIMIT, 0);
+	}
 	WriteReg4AmdGpu(mmSRBM_GFX_CNTL, 0);
-	value = SET_FIELD(0, SH_MEM_CONFIG, DEFAULT_MTYPE, kMtypeUc);
-	value = SET_FIELD(value, SH_MEM_CONFIG, APE1_MTYPE, kMtypeUc);
-	value = SET_FIELD(value, SH_MEM_CONFIG, ALIGNMENT_MODE,
-		kShMemAlignmentModeUnaligned);
-	WriteReg4AmdGpu(mmSH_MEM_CONFIG, value);
-	WriteReg4AmdGpu(mmSH_MEM_BASES, 0);
-	WriteReg4AmdGpu(mmSH_MEM_APE1_BASE, 1);
-	WriteReg4AmdGpu(mmSH_MEM_APE1_LIMIT, 0);
 
 }
 

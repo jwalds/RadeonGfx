@@ -34,20 +34,14 @@ struct InterruptPacketInt {
 
 
 RadeonRingBufferInt::RadeonRingBufferInt():
-	fEnabled(false), fWptrGpuAdr(0)
+	fEnabled(false), fWptrGpuAdr(0), fThread(-1), fRun(false)
 {
 	memset(fHandlers, 0, sizeof(fHandlers));
 }
 
 RadeonRingBufferInt::~RadeonRingBufferInt()
 {
-	if (fThread >= B_OK) {
-		status_t res;
-		suspend_thread(fThread);
-		fRun = false;
-		wait_for_thread(fThread, &res);
-		fThread = -1;
-	}
+	StopThread();
 	if (fWptrGpuAdr != 0) {gDevice.MemMgr().Switch()->FreeWriteback(fWptrGpuAdr); fWptrGpuAdr = 0;}
 }
 
@@ -91,6 +85,25 @@ status_t RadeonRingBufferInt::Init(uint64 size)
 */
 	WriteReg4AmdGpu(mmIH_CNTL, ihCntl.val);
 
+	CheckRet(StartThread());
+	Enable();
+
+	return B_OK;
+}
+
+void RadeonRingBufferInt::StopThread()
+{
+	if (fThread >= B_OK) {
+		status_t res;
+		suspend_thread(fThread);
+		fRun = false;
+		wait_for_thread(fThread, &res);
+		fThread = -1;
+	}
+}
+
+status_t RadeonRingBufferInt::StartThread()
+{
 	fRun = true;
 	fThread = spawn_thread(
 		[](void *arg) -> status_t {
@@ -102,9 +115,6 @@ status_t RadeonRingBufferInt::Init(uint64 size)
 	);
 	CheckRet(fThread);
 	resume_thread(fThread);
-
-	Enable();
-
 	return B_OK;
 }
 
@@ -258,6 +268,18 @@ static void WriteInterruptPacket(const InterruptPacket &pkt)
 	}
 }
 
+void RadeonRingBufferInt::Dispatch(InterruptPacket &pkt)
+{
+	if (pkt.clientId == 0 && pkt.srcId < srcIdCnt) {
+		auto &handlerItem = fHandlers[pkt.srcId];
+		if (handlerItem.handler != NULL) {
+			handlerItem.handler(handlerItem.arg, pkt);
+			return;
+		}
+	}
+	WriteInterruptPacket(pkt);
+}
+
 bool RadeonRingBufferInt::Handle()
 {
 	bool handled = false;
@@ -269,16 +291,7 @@ bool RadeonRingBufferInt::Handle()
 			//printf("IH: fWptr: %" B_PRIu32 "\n", fWptr);
 			InterruptPacket pkt;
 			ReadPacket(pkt);
-			if (pkt.clientId == 0 && pkt.srcId < srcIdCnt) {
-				auto &handlerItem = fHandlers[pkt.srcId];
-				if (handlerItem.handler != NULL) {
-					handlerItem.handler(handlerItem.arg, pkt);
-				}
-				else
-					WriteInterruptPacket(pkt);
-			} else {
-				WriteInterruptPacket(pkt);
-			}
+			Dispatch(pkt);
 		}
 		SetRptr();
 	}
@@ -287,11 +300,16 @@ bool RadeonRingBufferInt::Handle()
 }
 
 
-status_t RadeonRingBufferInt::ThreadEntry()
+status_t RadeonRingBufferInt::WaitForInterrupt()
 {
 	sem_id intSem = gDevice.SharedInfo()->vblank_sem;
+	return acquire_sem_etc(intSem, 1, B_RELATIVE_TIMEOUT, 1000000);
+}
+
+status_t RadeonRingBufferInt::ThreadEntry()
+{
 	while (fRun) {
-		status_t res = acquire_sem_etc(intSem, 1, B_RELATIVE_TIMEOUT, 1000000);
+		status_t res = WaitForInterrupt();
 		if (res == B_INTERRUPTED) continue;
 		if (res < B_OK && res != B_TIMED_OUT) abort();
 		auto thisLocked = ExternalPtr<RadeonRingBufferInt>(this).Switch();

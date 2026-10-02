@@ -86,6 +86,8 @@ public:
 	uint32 Wseq() {return fWseq;}
 	void WriteFence(RingFence *fence);
 	virtual void WriteFence2() = 0;
+	// 64 bit sequence number write without interrupt (CS user fences)
+	virtual void WriteUserFence(uint64 adr, uint64 seq);
 	virtual void WriteIb(uint64 adr, uint32 count, uint32 vmId) = 0;
 	virtual void WriteVmFlush(uint32 vmId, uint64 pdAdr) = 0;
 	virtual status_t Begin(uint32 len);

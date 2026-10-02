@@ -18,6 +18,8 @@
 #include "PolarisIhTest.h"
 #include "PolarisSdmaTest.h"
 #include "PolarisGfxTest.h"
+#include "RenderDevice.h"
+#include <string.h>
 
 #define CheckRet(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
@@ -81,10 +83,33 @@ int main(int argc, char** argv)
 		return PolarisGfxTest(argc >= 3
 			&& strcmp(argv[2], "--all-vm-contexts") == 0) < B_OK ? 1 : 0;
 
+	// GPU server on Polaris
+	if (argc >= 2 && strcmp(argv[1], "server") == 0
+		&& (argc < 3 || strcmp(argv[argc - 1], "--si") != 0)) {
+		RadeonInitServer();
+		FileDescriptorCloser fd;
+		BString path;
+		if (OpenRenderDevice(fd, path) < B_OK) {
+			fprintf(stderr, "no radeon_hd render device found\n");
+			return 1;
+		}
+		printf("Device:    %s\n", path.String());
+		status_t status = gDevice.InitPolarisServer(fd.Get());
+		if (status < B_OK) {
+			fprintf(stderr, "[!] Polaris server init failed: %s\n",
+				strerror(status));
+			gDevice.FiniPolarisServer();
+			return 1;
+		}
+		RadeonRunServer();
+		gDevice.FiniPolarisServer();
+		return 0;
+	}
+
 	// The server and test modes still contain Southern Islands (GFX6)
 	// initialization, which must not run on Polaris (GFX8).
 	if (argc < 3 || strcmp(argv[argc - 1], "--si") != 0) {
-		fprintf(stderr, "Only \"%s info|memtest|garttest|ihtest|sdmatest|gfxtest\" is supported on Polaris yet "
+		fprintf(stderr, "Only \"%s info|memtest|garttest|ihtest|sdmatest|gfxtest|server\" is supported on Polaris yet "
 			"(add --si to run the Southern Islands code).\n", argv[0]);
 		return 1;
 	}

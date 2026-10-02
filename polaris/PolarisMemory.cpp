@@ -89,6 +89,7 @@ MemoryManager::InitPolaris()
 	fVramScratch = vramScratch.buf;
 
 	fVmidPool.Register(1, 15);
+	fVramPteBase = vramBase;
 	return B_OK;
 }
 

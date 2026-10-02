@@ -96,7 +96,7 @@ WaitForMcIdle(const char *when)
 
 
 status_t
-MemoryManager::InitGartPolaris(bool allContexts)
+MemoryManager::InitGartPolaris(bool vmContexts)
 {
 	if (fGartEnabled)
 		return B_OK;
@@ -204,35 +204,73 @@ MemoryManager::InitGartPolaris(bool allContexts)
 	WriteReg4AmdGpu(mmVM_L2_CONTEXT1_IDENTITY_APERTURE_HIGH_ADDR, 0);
 	WriteReg4AmdGpu(mmVM_L2_CONTEXT_IDENTITY_PHYSICAL_OFFSET, 0);
 
-	// contexts 1-15 (per process address spaces) stay disabled for now,
-	// unless a test asks for them to map the GART as context 0 does
-	if (allContexts) {
-		WriteReg4AmdGpu(mmVM_CONTEXT1_PAGE_TABLE_START_ADDR,
-			fGttRange.beg >> 12);
+	// *** contexts 1-15: per process address spaces (AddressSpace), two
+	// level page tables with 512 entry page tables, page directories set
+	// per submission (WriteVmFlush()). Until then they point at an empty
+	// page directory: every access faults to the dummy page.
+	if (vmContexts) {
+		MappedBuffer emptyDirectory(Alloc(boDomainVramMappable,
+			AddressSpace::pageDirLen * sizeof(Pte)));
+		if (emptyDirectory.adr == NULL)
+			return B_NO_MEMORY;
+		memset(emptyDirectory.adr, 0, emptyDirectory.buf->size);
+		fEmptyPageDir = emptyDirectory.buf;
+
+		WriteReg4AmdGpu(mmVM_CONTEXT1_PAGE_TABLE_START_ADDR, 0);
 		WriteReg4AmdGpu(mmVM_CONTEXT1_PAGE_TABLE_END_ADDR,
-			(fGttRange.beg + fGttRange.size - 1) >> 12);
+			(uint32)AddressSpace::pageDirLen * AddressSpace::pageTableLen - 1);
 		for (uint32 i = 1; i < 16; i++) {
-			WriteReg4AmdGpu(i < 8 ? mmVM_CONTEXT1_PAGE_TABLE_BASE_ADDR + i - 1
+			WriteReg4AmdGpu(i < 8 ? mmVM_CONTEXT0_PAGE_TABLE_BASE_ADDR + i
 					: mmVM_CONTEXT8_PAGE_TABLE_BASE_ADDR + i - 8,
-				fGartPageTable.buf->gpuPhysAdr >> 12);
+				fEmptyPageDir->gpuPhysAdr >> 12);
 		}
 		WriteReg4AmdGpu(mmVM_CONTEXT1_PROTECTION_FAULT_DEFAULT_ADDR,
 			fDummyPage->gpuPhysAdr >> 12);
-		WriteReg4AmdGpu(mmVM_CONTEXT1_CNTL2, 0);
+		WriteReg4AmdGpu(mmVM_CONTEXT1_CNTL2, 4);
 		value = ReadReg4AmdGpu(mmVM_CONTEXT1_CNTL);
 		value = SET_FIELD(value, VM_CONTEXT1_CNTL, ENABLE_CONTEXT, 1);
-		value = SET_FIELD(value, VM_CONTEXT1_CNTL, PAGE_TABLE_DEPTH, 0);
+		value = SET_FIELD(value, VM_CONTEXT1_CNTL, PAGE_TABLE_DEPTH, 1);
 		value = SET_FIELD(value, VM_CONTEXT1_CNTL,
 			RANGE_PROTECTION_FAULT_ENABLE_DEFAULT, 1);
 		value = SET_FIELD(value, VM_CONTEXT1_CNTL,
+			DUMMY_PAGE_PROTECTION_FAULT_ENABLE_DEFAULT, 1);
+		value = SET_FIELD(value, VM_CONTEXT1_CNTL,
+			PDE0_PROTECTION_FAULT_ENABLE_DEFAULT, 1);
+		value = SET_FIELD(value, VM_CONTEXT1_CNTL,
 			VALID_PROTECTION_FAULT_ENABLE_DEFAULT, 1);
+		value = SET_FIELD(value, VM_CONTEXT1_CNTL,
+			READ_PROTECTION_FAULT_ENABLE_DEFAULT, 1);
+		value = SET_FIELD(value, VM_CONTEXT1_CNTL,
+			WRITE_PROTECTION_FAULT_ENABLE_DEFAULT, 1);
+		value = SET_FIELD(value, VM_CONTEXT1_CNTL,
+			EXECUTE_PROTECTION_FAULT_ENABLE_DEFAULT, 1);
+		value = SET_FIELD(value, VM_CONTEXT1_CNTL, PAGE_TABLE_BLOCK_SIZE, 0);
+		// gmc_v8_0_vm_fault_interrupt_state(): faults are reported through
+		// the IH (source 146/147)
+		value |= VM_CONTEXT1_CNTL__RANGE_PROTECTION_FAULT_ENABLE_INTERRUPT_MASK
+			| VM_CONTEXT1_CNTL__DUMMY_PAGE_PROTECTION_FAULT_ENABLE_INTERRUPT_MASK
+			| VM_CONTEXT1_CNTL__PDE0_PROTECTION_FAULT_ENABLE_INTERRUPT_MASK
+			| VM_CONTEXT1_CNTL__VALID_PROTECTION_FAULT_ENABLE_INTERRUPT_MASK
+			| VM_CONTEXT1_CNTL__READ_PROTECTION_FAULT_ENABLE_INTERRUPT_MASK
+			| VM_CONTEXT1_CNTL__WRITE_PROTECTION_FAULT_ENABLE_INTERRUPT_MASK
+			| VM_CONTEXT1_CNTL__EXECUTE_PROTECTION_FAULT_ENABLE_INTERRUPT_MASK;
 		WriteReg4AmdGpu(mmVM_CONTEXT1_CNTL, value);
-		printf("GART:      also mapped by VM contexts 1-15\n");
+		printf("VM:        contexts 1-15 enabled, %" B_PRIu64 " GB each\n",
+			(uint64)AddressSpace::pageDirLen * AddressSpace::pageTableLen
+				* B_PAGE_SIZE >> 30);
 	}
 
 	GartFlushTlb();
 	fGartEnabled = true;
 	fDomainPools[boDomainGtt].Register(fGttRange.beg, fGttRange.size);
+
+	// fences and read pointers written back by the engines
+	fWritebackBuf.SetTo(Alloc(boDomainGtt, B_PAGE_SIZE));
+	if (fWritebackBuf.adr == NULL)
+		return B_NO_MEMORY;
+	memset(fWritebackBuf.adr, 0, B_PAGE_SIZE);
+	fWritebackPool.Register(fWritebackBuf.buf->gpuPhysAdr,
+		fWritebackBuf.buf->size);
 
 	printf("GART:      %#" B_PRIx64 " - %#" B_PRIx64 " (%" B_PRIu64
 		" MB), page table at %#" B_PRIx64 "\n", fGttRange.beg,
