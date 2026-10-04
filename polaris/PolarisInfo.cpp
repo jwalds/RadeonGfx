@@ -89,6 +89,23 @@ PrintEngineState(const RegisterReader &regs)
 		vmContext0Cntl,
 		FIELD(vmContext0Cntl, VM_CONTEXT0_CNTL, ENABLE_CONTEXT)
 			? "enabled" : "disabled");
+
+	// command processor position and VM faults, for a hung GPU
+	printf("  CP_STAT            %#010" B_PRIx32 "\n", regs.Read(mmCP_STAT));
+	printf("  CP_CPF_STATUS      %#010" B_PRIx32 ", CP_CPF_BUSY_STAT %#010"
+		B_PRIx32 "\n", regs.Read(mmCP_CPF_STATUS),
+		regs.Read(mmCP_CPF_BUSY_STAT));
+	printf("  CP_RB0 rptr %#" B_PRIx32 ", wptr %#" B_PRIx32 "\n",
+		regs.Read(mmCP_RB0_RPTR), regs.Read(mmCP_RB0_WPTR));
+	printf("  CP_IB1 base %#" B_PRIx32 "%08" B_PRIx32 ", %" B_PRIu32
+		" dwords left; CP_IB2 base %#" B_PRIx32 "%08" B_PRIx32 ", %" B_PRIu32
+		" dwords left\n", regs.Read(mmCP_IB1_BASE_HI),
+		regs.Read(mmCP_IB1_BASE_LO), regs.Read(mmCP_IB1_BUFSZ),
+		regs.Read(mmCP_IB2_BASE_HI), regs.Read(mmCP_IB2_BASE_LO),
+		regs.Read(mmCP_IB2_BUFSZ));
+	printf("  VM_CONTEXT1_PROTECTION_FAULT_STATUS %#010" B_PRIx32 ", ADDR %#"
+		B_PRIx32 "\n", regs.Read(mmVM_CONTEXT1_PROTECTION_FAULT_STATUS),
+		regs.Read(mmVM_CONTEXT1_PROTECTION_FAULT_ADDR));
 }
 
 
