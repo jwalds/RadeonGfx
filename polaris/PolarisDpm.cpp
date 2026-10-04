@@ -999,7 +999,10 @@ PolarisDpm::Upload()
 	// (F0 then holds the timings of the last clock pair)
 	uint32 arbSet = (ReadReg4AmdGpu(mmMC_ARB_CG) & MC_ARB_CG__CG_ARB_REQ_MASK)
 		>> MC_ARB_CG__CG_ARB_REQ__SHIFT;
-	if (arbSet == MC_CG_ARB_FREQ_F0)
+	printf("DPM: MC_ARB_CG %#" B_PRIx32 ", SMC_SCRATCH9 %#" B_PRIx32 "\n",
+		ReadReg4AmdGpu(mmMC_ARB_CG), fSmu.ReadIndirect(ixSMC_SCRATCH9));
+	// no request since boot (0) means F0
+	if (arbSet == 0 || arbSet == MC_CG_ARB_FREQ_F0)
 		SwitchArbSet(MC_CG_ARB_FREQ_F0, MC_CG_ARB_FREQ_F1);
 	else if (arbSet != MC_CG_ARB_FREQ_F1) {
 		printf("[!] DPM: unexpected MC arbiter set %#" B_PRIx32 "\n", arbSet);
