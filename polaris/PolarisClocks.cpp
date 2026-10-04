@@ -40,6 +40,20 @@ PolarisClocks(const char *action)
 	}
 	CheckRet(gDevice.InitPolaris(fd.Get(), true));
 
+	if (action != NULL && strcmp(action, "watch") == 0) {
+		// only the SMC's current clocks, every half second for 15 s
+		PolarisSmu smu;
+		if (!smu.IsFirmwareRunning()) {
+			printf("the SMC firmware isn't running\n");
+			return B_NOT_INITIALIZED;
+		}
+		for (int i = 0; i < 30; i++) {
+			PrintCurrentClocks(smu);
+			snooze(500000);
+		}
+		return B_OK;
+	}
+
 	const radeon_hd_gpu_info &info = gDevice.GpuInfo();
 	void *rom = NULL;
 	AreaDeleter romArea(clone_area("radeon hd rom", &rom, B_ANY_ADDRESS,
