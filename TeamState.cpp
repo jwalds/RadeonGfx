@@ -235,6 +235,13 @@ status_t TeamState::ScheduleCS(uint64 &handle, CommandSubmission *cs)
 		printf("[!] Domain() != CurrentDomain()\n");
 		abort();
 	}
+	// a bad submission is rejected before it gets a sequence number
+	status_t status = cs->Remap();
+	if (status < B_OK) {
+		printf("[!] CS rejected: IBs can't be remapped\n");
+		delete cs;
+		return status;
+	}
 	handle = fLastCsSeq++;
 	cs->seq = handle;
 	//printf("TeamState::ScheduleCS() -> %" B_PRIu64 "\n", handle);

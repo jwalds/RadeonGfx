@@ -504,6 +504,19 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 						case AMDGPU_CHUNK_ID_IB: {
 							auto ib = (struct drm_amdgpu_cs_chunk_ib*)chunks[i]->chunk_data;
 							//printf("  AMDGPU_CHUNK_ID_IB: (va_start: %#" B_PRIx64 ", ib_bytes: %#" B_PRIx64 ")\n", ib->va_start, ib->ib_bytes);
+							if (trace) {
+								printf("  IB %#" B_PRIx64 ", %" B_PRIu32 " bytes, IP %"
+									B_PRIu32 ", ring %" B_PRIu32 ", flags %#" B_PRIx32 "\n",
+									(uint64)ib->va_start, (uint32)ib->ib_bytes,
+									ib->ip_type, ib->ring, ib->flags);
+							}
+							// everything runs on the GFX ring
+							if (ib->ip_type != AMDGPU_HW_IP_GFX
+								&& ib->ip_type != AMDGPU_HW_IP_COMPUTE) {
+								printf("[!] CS: IP type %" B_PRIu32 " not supported\n",
+									ib->ip_type);
+								return EINVAL;
+							}
 							cs->indBufs[ibIdx].va = ib->va_start;
 							cs->indBufs[ibIdx].size = ib->ib_bytes;
 							ibIdx++;

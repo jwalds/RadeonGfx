@@ -43,11 +43,7 @@ status_t CommandSubmission::Schedule()
 {
 	fence.SetTo(new RingFence(), true);
 	fence->OnSignal(&handler);
-	if (Remap() < B_OK) {
-		printf("[!] CS: Remap() failed\n");
-		abort();
-	}
-	//CheckRet(cs->Remap());
+	// the IBs are remapped by TeamState::ScheduleCS()
 
 	waitFenceGroup = SignaledFence::Instance();
 	for (uint32 i = 0; i < waitCnt; i++) {
