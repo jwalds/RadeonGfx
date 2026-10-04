@@ -36,6 +36,12 @@ PolarisPowerPlay::Init(const uint8 *rom, size_t size)
 		= At<ATOM_Tonga_POWERPLAYTABLE>(rom, size, tableOffset);
 	if (table == NULL)
 		return B_BAD_DATA;
+	printf("PowerPlay: ROM header at %#x, master data table at %#x, PowerPlay"
+		" table at %#zx: format %u.%u, size %u\n", *romHeaderOffset,
+		romHeader->usMasterDataTableOffset, tableOffset,
+		table->sHeader.ucTableFormatRevision,
+		table->sHeader.ucTableContentRevision,
+		table->sHeader.usStructureSize);
 	const uint8 *base = rom + tableOffset;
 	size_t tableSize = size - tableOffset;
 
