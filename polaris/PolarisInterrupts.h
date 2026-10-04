@@ -21,4 +21,6 @@ protected:
 
 private:
 	PolarisIhRing fIh;
+	bigtime_t fLastFenceCheck = 0;
+	uint32 fMissedInterrupts = 0;
 };

@@ -135,6 +135,13 @@ void RadeonRingBuffer::UpdateFences()
 }
 
 
+bool RadeonRingBuffer::HasPassedFences()
+{
+	RingFence *fence = fFences.First();
+	return fence != NULL && (int32)Rseq() - (int32)fence->Seq() >= 0;
+}
+
+
 void RadeonRingBuffer::WriteUserFence(uint64 adr, uint64 seq)
 {
 	(void)adr;

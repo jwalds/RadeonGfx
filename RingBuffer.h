@@ -96,6 +96,8 @@ public:
 	void End();
 	status_t WaitEmpty();
 	void UpdateFences();
+	// fences the GPU passed that UpdateFences() didn't signal yet
+	bool HasPassedFences();
 
 	void WriteState();
 };
