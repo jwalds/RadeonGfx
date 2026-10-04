@@ -744,7 +744,10 @@ PolarisDpm::BuildTable()
 	if (fPcieCount > SMU74_MAX_LEVELS_LINK - 1)
 		fPcieCount = SMU74_MAX_LEVELS_LINK - 1;
 	fSclkEnableMask = (1 << fSclkCount) - 1;
-	fMclkEnableMask = (1 << fMclkCount) - 1;
+	// switching the memory clock needs long enough vertical blanks, which
+	// isn't checked (Linux smu7_vblank_too_short()): the memory clock is
+	// switched once to its highest level
+	fMclkEnableMask = 1 << (fMclkCount - 1);
 
 	// polaris10_init_smc_table()
 	// SVI2 VDDC: no SMIO tables (polaris10_populate_smc_voltage_tables()),
@@ -1059,6 +1062,7 @@ PolarisDpm::Start(bool memoryDpm)
 		| SMU7_VCE_SCLK_HANDSHAKE_DISABLE);
 	CheckRet(fSmu.SendMessage(PPSMC_MSG_DPM_Enable, 0));
 	if (memoryDpm) {
+		ProgramDisplayGap();
 		CheckRet(fSmu.SendMessage(PPSMC_MSG_MCLKDPM_Enable, 0));
 		WriteReg4AmdGpu(mmMC_SEQ_CNTL_3, ReadReg4AmdGpu(mmMC_SEQ_CNTL_3)
 			| MC_SEQ_CNTL_3__CAC_EN_MASK);
@@ -1083,12 +1087,8 @@ PolarisDpm::Start(bool memoryDpm)
 	CheckRet(fSmu.SendMessage(PPSMC_MSG_SCLKDPM_SetEnabledMask,
 		fSclkEnableMask));
 	if (memoryDpm) {
-		// switching the memory clock needs long enough vertical blanks, which
-		// isn't checked (Linux smu7_vblank_too_short()): the memory clock is
-		// switched once to its highest level
-		ProgramDisplayGap();
 		CheckRet(fSmu.SendMessage(PPSMC_MSG_MCLKDPM_SetEnabledMask,
-			1 << (fMclkCount - 1)));
+			fMclkEnableMask));
 	}
 	return B_OK;
 }
