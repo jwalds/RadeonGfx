@@ -52,14 +52,31 @@ PolarisPowerPlay::Init(const uint8 *rom, size_t size)
 	fMaxOdSclk = table->ulMaxODEngineClock;
 	fMaxOdMclk = table->ulMaxODMemoryClock;
 	fPowerLimit = table->usPowerControlLimit;
+	fUlvOffset = table->usUlvVoltageOffset;
 	if (table->sHeader.ucTableFormatRevision < 7)
 		return B_NOT_SUPPORTED;
 
 	const ATOM_Tonga_PowerTune_Table *powerTune
 		= At<ATOM_Tonga_PowerTune_Table>(base, tableSize,
 			table->usPowerTuneTableOffset);
-	if (powerTune != NULL)
+	if (powerTune != NULL) {
 		fClockStretchAmount = powerTune->usClockStretchAmount;
+		fTjMax = powerTune->usTjMax;
+		fTdc = powerTune->usTDC;
+		fPowerTuneDataSetId = powerTune->usPowerTuneDataSetID;
+		if (powerTune->ucRevId >= 4) {
+			const ATOM_Polaris_PowerTune_Table *polaris
+				= At<ATOM_Polaris_PowerTune_Table>(base, tableSize,
+					table->usPowerTuneTableOffset);
+			if (polaris != NULL)
+				fCksLdoRefSel = polaris->ucCKS_LDO_REFSEL;
+		}
+	}
+
+	const ATOM_Tonga_GPIO_Table *gpio = At<ATOM_Tonga_GPIO_Table>(base,
+		tableSize, table->usGPIOTableOffset);
+	if (gpio != NULL)
+		fVrHotSclkLevel = gpio->ucVRHotTriggeredSclkDpmIndex;
 
 	const ATOM_Tonga_Voltage_Lookup_Table *vddc
 		= At<ATOM_Tonga_Voltage_Lookup_Table>(base, tableSize,
@@ -67,8 +84,12 @@ PolarisPowerPlay::Init(const uint8 *rom, size_t size)
 	if (vddc == NULL)
 		return B_BAD_DATA;
 	fVddcCount = vddc->ucNumEntries < 32 ? vddc->ucNumEntries : 32;
-	for (uint32 i = 0; i < fVddcCount; i++)
+	for (uint32 i = 0; i < fVddcCount; i++) {
 		fVddc[i] = vddc->entries[i].usVdd;
+		fVddcCac[i][0] = vddc->entries[i].usCACLow;
+		fVddcCac[i][1] = vddc->entries[i].usCACMid;
+		fVddcCac[i][2] = vddc->entries[i].usCACHigh;
+	}
 
 	const ATOM_Tonga_SCLK_Dependency_Table *sclk
 		= At<ATOM_Tonga_SCLK_Dependency_Table>(base, tableSize,
@@ -111,6 +132,44 @@ PolarisPowerPlay::Init(const uint8 *rom, size_t size)
 		fMclk[i].vddci = record.usVddci;
 		fMclk[i].mvdd = record.usMvdd;
 	}
+
+	const ATOM_Tonga_PCIE_Table *pcie = At<ATOM_Tonga_PCIE_Table>(base,
+		tableSize, table->usPCIETableOffset);
+	if (pcie != NULL) {
+		fPcieCount = pcie->ucNumEntries < kMaxLevels ? pcie->ucNumEntries
+			: kMaxLevels;
+		for (uint32 i = 0; i < fPcieCount; i++) {
+			if (pcie->ucRevId == 0) {
+				fPcie[i].gen = pcie->entries[i].ucPCIEGenSpeed;
+				fPcie[i].lanes = pcie->entries[i].usPCIELaneWidth;
+				fPcie[i].sclk = 0;
+			} else {
+				const ATOM_Polaris10_PCIE_Record &record
+					= ((const ATOM_Polaris10_PCIE_Table*)pcie)->entries[i];
+				fPcie[i].gen = record.ucPCIEGenSpeed;
+				fPcie[i].lanes = record.usPCIELaneWidth;
+				fPcie[i].sclk = record.ulPCIE_Sclk;
+			}
+		}
+	}
+
+	const ATOM_Tonga_MM_Dependency_Table *mm
+		= At<ATOM_Tonga_MM_Dependency_Table>(base, tableSize,
+			table->usMMDependencyTableOffset);
+	if (mm != NULL) {
+		fMmCount = mm->ucNumEntries < kMaxLevels ? mm->ucNumEntries
+			: kMaxLevels;
+		for (uint32 i = 0; i < fMmCount; i++) {
+			const ATOM_Tonga_MM_Dependency_Record &record = mm->entries[i];
+			fMm[i].vddcIndex = record.ucVddcInd;
+			fMm[i].dclk = record.ulDClk;
+			fMm[i].vclk = record.ulVClk;
+			fMm[i].eclk = record.ulEClk;
+			fMm[i].aclk = record.ulAClk;
+			fMm[i].samclk = record.ulSAMUClk;
+		}
+	}
+
 	UpdateLevelVoltages();
 	return B_OK;
 }
@@ -186,6 +245,10 @@ PolarisPowerPlay::UpdateLevelVoltages()
 		fMclk[i].vddc = fMclk[i].vddcIndex < fVddcCount
 			? fVddc[fMclk[i].vddcIndex] : 0;
 	}
+	for (uint32 i = 0; i < fMmCount; i++) {
+		fMm[i].vddc = fMm[i].vddcIndex < fVddcCount
+			? fVddc[fMm[i].vddcIndex] : 0;
+	}
 }
 
 
@@ -219,4 +282,19 @@ PolarisPowerPlay::Print()
 		printf(", vddci %4u mV, mvdd %4u mV\n", fMclk[i].vddci,
 			fMclk[i].mvdd);
 	}
+	for (uint32 i = 0; i < fPcieCount; i++) {
+		printf("  pcie %" B_PRIu32 ": gen %u, %u lanes, bif clock %" B_PRIu32
+			" MHz\n", i, fPcie[i].gen + 1, fPcie[i].lanes, fPcie[i].sclk / 100);
+	}
+	for (uint32 i = 0; i < fMmCount; i++) {
+		printf("  mm %" B_PRIu32 ": vclk %" B_PRIu32 ", dclk %" B_PRIu32
+			", eclk %" B_PRIu32 ", samclk %" B_PRIu32 " MHz, vddc ", i,
+			fMm[i].vclk / 100, fMm[i].dclk / 100, fMm[i].eclk / 100,
+			fMm[i].samclk / 100);
+		PrintVoltage(fMm[i].vddc);
+		printf("\n");
+	}
+	printf("  ulv offset %u mV, TjMax %u C, TDC %u A, PowerTune set %u, VR hot"
+		" sclk level %u\n", fUlvOffset, fTjMax, fTdc, fPowerTuneDataSetId,
+		fVrHotSclkLevel);
 }

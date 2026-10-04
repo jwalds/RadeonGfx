@@ -1,5 +1,6 @@
 #include "PolarisClocks.h"
 #include "Atombios.h"
+#include "PolarisDpm.h"
 #include "PolarisPowerPlay.h"
 #include "PolarisSmu.h"
 #include "RenderDevice.h"
@@ -17,8 +18,19 @@
 #define CheckRet(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
 
+static void
+PrintCurrentClocks(PolarisSmu &smu)
+{
+	uint32 sclk = 0, mclk = 0;
+	smu.SendMessage(PPSMC_MSG_API_GetSclkFrequency, 0, &sclk);
+	smu.SendMessage(PPSMC_MSG_API_GetMclkFrequency, 0, &mclk);
+	printf("current:   engine clock %" B_PRIu32 " MHz, memory clock %" B_PRIu32
+		" MHz, %" B_PRIu32 " C\n", sclk / 100, mclk / 100, smu.Temperature());
+}
+
+
 status_t
-PolarisClocks()
+PolarisClocks(const char *action)
 {
 	FileDescriptorCloser fd;
 	BString path;
@@ -37,17 +49,14 @@ PolarisClocks()
 		return romArea.Get();
 	}
 	PolarisPowerPlay powerPlay;
-	status_t status = powerPlay.Init((const uint8*)rom, info.rom_size);
-	if (status < B_OK)
-		printf("[!] PowerPlay table: %s\n", strerror(status));
-	else {
-		Atombios atombios;
-		status = atombios.Init(info.rom_area);
-		if (status >= B_OK)
-			status = powerPlay.ResolveVoltages(atombios.Context());
-		if (status < B_OK)
-			printf("[!] EVV voltages: %s\n", strerror(status));
-		powerPlay.Print();
+	CheckRet(powerPlay.Init((const uint8*)rom, info.rom_size));
+	Atombios atombios;
+	CheckRet(atombios.Init(info.rom_area));
+	status_t status = powerPlay.ResolveVoltages(atombios.Context());
+	powerPlay.Print();
+	if (status < B_OK) {
+		printf("[!] EVV voltages: %s\n", strerror(status));
+		return status;
 	}
 
 	BPath firmwareDir;
@@ -56,10 +65,36 @@ PolarisClocks()
 	PolarisSmu smu;
 	if (!smu.IsFirmwareRunning())
 		CheckRet(smu.Start(smcFirmware.Path()));
-	uint32 sclk = 0, mclk = 0;
-	smu.SendMessage(PPSMC_MSG_API_GetSclkFrequency, 0, &sclk);
-	smu.SendMessage(PPSMC_MSG_API_GetMclkFrequency, 0, &mclk);
-	printf("current:   engine clock %" B_PRIu32 " MHz, memory clock %" B_PRIu32
-		" MHz, %" B_PRIu32 " C\n", sclk / 100, mclk / 100, smu.Temperature());
+
+	PolarisDpm dpm(smu, powerPlay, atombios, (const uint8*)rom,
+		info.rom_size);
+	CheckRet(dpm.Init());
+	dpm.Print();
+	CheckRet(dpm.BuildTable());
+	dpm.PrintTable();
+	printf("DPM %s\n", dpm.IsRunning() ? "running" : "not running");
+	PrintCurrentClocks(smu);
+
+	if (action == NULL)
+		return B_OK;
+	bool start = strcmp(action, "start") == 0;
+	bool startMemory = strcmp(action, "start-memory") == 0;
+	if (!start && !startMemory && strcmp(action, "upload") != 0) {
+		printf("unknown action %s (upload, start, start-memory)\n", action);
+		return B_BAD_VALUE;
+	}
+
+	printf("uploading the DPM table\n");
+	CheckRet(dpm.Upload());
+	if (!start && !startMemory)
+		return B_OK;
+
+	printf("starting DPM%s\n", startMemory ? " with memory clocks" : "");
+	CheckRet(dpm.Start(startMemory));
+	printf("DPM %s\n", dpm.IsRunning() ? "running" : "not running");
+	for (int i = 0; i < 5; i++) {
+		snooze(500000);
+		PrintCurrentClocks(smu);
+	}
 	return B_OK;
 }
