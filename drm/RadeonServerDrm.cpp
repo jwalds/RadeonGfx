@@ -204,43 +204,42 @@ void RadeonHandleDrmMessage(BPrivate::PortLink &link, ExternalRef<TeamState> sta
 
 						ObjectDeleter<struct drm_amdgpu_bo_list_in> chunk_data_handles;
 
-						ArrayDeleter<uint32> chunk_data_ib;
-						ArrayDeleter<uint32> chunk_data_fence;
-						ArrayDeleter<uint32> chunk_data_dependencies;
-						ArrayDeleter<uint32> chunk_data_syncobj_wait;
-						ArrayDeleter<uint32> chunk_data_syncobj_signal;
+						// one buffer per chunk: a submission can have several chunks
+						// of a kind (RADV sends a preamble IB and the main IB)
+						ArrayDeleter<ArrayDeleter<uint32> > chunkData(
+							new ArrayDeleter<uint32>[args.in.num_chunks]);
 
 						ArrayDeleter<uint8> bo_info_array;
 						for (size_t i = 0; i < args.in.num_chunks; i++) {
 							switch(chunks[i]->chunk_id) {
 								case AMDGPU_CHUNK_ID_IB: {
-									chunk_data_ib.SetTo(new uint32[chunks[i]->length_dw]);
-									link.Read(&chunk_data_ib[0], 4*chunks[i]->length_dw);
-									chunks[i]->chunk_data = (addr_t)&chunk_data_ib[0];
+									chunkData[i].SetTo(new uint32[chunks[i]->length_dw]);
+									link.Read(&chunkData[i][0], 4*chunks[i]->length_dw);
+									chunks[i]->chunk_data = (addr_t)&chunkData[i][0];
 									break;
 								}
 								case AMDGPU_CHUNK_ID_FENCE: {
-									chunk_data_fence.SetTo(new uint32[chunks[i]->length_dw]);
-									link.Read(&chunk_data_fence[0], 4*chunks[i]->length_dw);
-									chunks[i]->chunk_data = (addr_t)&chunk_data_fence[0];
+									chunkData[i].SetTo(new uint32[chunks[i]->length_dw]);
+									link.Read(&chunkData[i][0], 4*chunks[i]->length_dw);
+									chunks[i]->chunk_data = (addr_t)&chunkData[i][0];
 									break;
 								}
 								case AMDGPU_CHUNK_ID_DEPENDENCIES: {
-									chunk_data_dependencies.SetTo(new uint32[chunks[i]->length_dw]);
-									link.Read(&chunk_data_dependencies[0], 4*chunks[i]->length_dw);
-									chunks[i]->chunk_data = (addr_t)&chunk_data_dependencies[0];
+									chunkData[i].SetTo(new uint32[chunks[i]->length_dw]);
+									link.Read(&chunkData[i][0], 4*chunks[i]->length_dw);
+									chunks[i]->chunk_data = (addr_t)&chunkData[i][0];
 									break;
 								}
 								case AMDGPU_CHUNK_ID_SYNCOBJ_TIMELINE_WAIT: {
-									chunk_data_syncobj_wait.SetTo(new uint32[chunks[i]->length_dw]);
-									link.Read(&chunk_data_syncobj_wait[0], 4*chunks[i]->length_dw);
-									chunks[i]->chunk_data = (addr_t)&chunk_data_syncobj_wait[0];
+									chunkData[i].SetTo(new uint32[chunks[i]->length_dw]);
+									link.Read(&chunkData[i][0], 4*chunks[i]->length_dw);
+									chunks[i]->chunk_data = (addr_t)&chunkData[i][0];
 									break;
 								}
 								case AMDGPU_CHUNK_ID_SYNCOBJ_TIMELINE_SIGNAL: {
-									chunk_data_syncobj_signal.SetTo(new uint32[chunks[i]->length_dw]);
-									link.Read(&chunk_data_syncobj_signal[0], 4*chunks[i]->length_dw);
-									chunks[i]->chunk_data = (addr_t)&chunk_data_syncobj_signal[0];
+									chunkData[i].SetTo(new uint32[chunks[i]->length_dw]);
+									link.Read(&chunkData[i][0], 4*chunks[i]->length_dw);
+									chunks[i]->chunk_data = (addr_t)&chunkData[i][0];
 									break;
 								}
 								case AMDGPU_CHUNK_ID_BO_HANDLES: {
