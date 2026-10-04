@@ -26,8 +26,7 @@ private:
 		uint32 fIdx;
 
 		void Do(Fence *fence) override;
-		bool Retain() override;
-		void Unretain() override;
+		bool Retain(BReferenceable *&holder) override;
 	};
 
 	Flags fFlags;

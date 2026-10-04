@@ -37,15 +37,17 @@ void Fence::Signal()
 
 	for (;;) {
 		Handler* handler;
+		BReferenceable *holder = NULL;
 		{
 			AutoLocker<RecursiveLock, AutoLockerLocksLocking<RecursiveLock>> lock(&fLock);
 			handler = fHandlers.RemoveHead();
-			if (handler != NULL && !handler->Retain())
+			if (handler != NULL && !handler->Retain(holder))
 				continue;
 		}
 		if (handler == NULL) return;
 		handler->Do(this);
-		handler->Unretain();
+		if (holder != NULL)
+			holder->ReleaseReference();
 	}
 }
 

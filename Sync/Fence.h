@@ -39,10 +39,11 @@ public:
 	public:
 		virtual void Do(Fence *fence) = 0;
 		// Signal() calls Do() outside of the fence's lock; a handler that is
-		// part of an object deleted from another thread keeps it alive with
-		// these (Retain() runs under the lock and may refuse a dying object)
-		virtual bool Retain() {return true;}
-		virtual void Unretain() {}
+		// part of an object deleted from another thread keeps it alive by
+		// returning a reference to it in holder (released after Do(), as the
+		// handler itself may be gone then). Runs under the lock; false
+		// skips a handler whose object is already dying.
+		virtual bool Retain(BReferenceable *&holder) {holder = NULL; return true;}
 	};
 
 	template<typename DoFn>

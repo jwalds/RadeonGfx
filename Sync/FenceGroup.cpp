@@ -38,14 +38,12 @@ void FenceGroup::GroupHandler::Do(Fence *fence)
 // runs this handler: it is kept alive meanwhile, and a group whose last
 // reference is already gone (its destructor waits for the fence's lock) is
 // skipped.
-bool FenceGroup::GroupHandler::Retain()
+bool FenceGroup::GroupHandler::Retain(BReferenceable *&holder)
 {
-	return fGroup->TryAcquireReference();
-}
-
-void FenceGroup::GroupHandler::Unretain()
-{
-	fGroup->ReleaseReference();
+	if (!fGroup->TryAcquireReference())
+		return false;
+	holder = fGroup;
+	return true;
 }
 
 bool FenceGroup::TryAcquireReference()
