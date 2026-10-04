@@ -122,3 +122,39 @@ PolarisClocks(const char *action)
 	}
 	return B_OK;
 }
+
+
+status_t
+PolarisStartPowerManagement(PolarisSmu &smu)
+{
+	const radeon_hd_gpu_info &info = gDevice.GpuInfo();
+	void *rom = NULL;
+	AreaDeleter romArea(clone_area("radeon hd rom", &rom, B_ANY_ADDRESS,
+		B_READ_AREA, info.rom_area));
+	CheckRet(romArea.Get());
+	PolarisPowerPlay powerPlay;
+	CheckRet(powerPlay.Init((const uint8*)rom, info.rom_size));
+	Atombios atombios;
+	CheckRet(atombios.Init(info.rom_area));
+	CheckRet(powerPlay.ResolveVoltages(atombios.Context()));
+
+	PolarisDpm dpm(smu, powerPlay, atombios, (const uint8*)rom,
+		info.rom_size);
+	CheckRet(dpm.Init());
+	if (dpm.IsRunning()) {
+		printf("DPM:       already running\n");
+		return B_OK;
+	}
+	CheckRet(dpm.BuildTable());
+	CheckRet(dpm.Upload());
+	// the order tested with "clocks start" and "clocks memory"
+	CheckRet(dpm.Start(false));
+	CheckRet(dpm.StartMemory());
+	const PolarisPowerPlay::SclkLevel &lowest = powerPlay.Sclk(0);
+	const PolarisPowerPlay::SclkLevel &highest
+		= powerPlay.Sclk(powerPlay.SclkLevelCount() - 1);
+	printf("DPM:       engine clock %" B_PRIu32 "-%" B_PRIu32 " MHz, memory"
+		" clock %" B_PRIu32 " MHz\n", lowest.clock / 100, highest.clock / 100,
+		powerPlay.Mclk(powerPlay.MclkLevelCount() - 1).clock / 100);
+	return B_OK;
+}

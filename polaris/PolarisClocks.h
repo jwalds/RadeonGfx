@@ -11,3 +11,9 @@
 //   memory        memory clock DPM after start
 //   watch         prints the current clocks for 15 s
 status_t PolarisClocks(const char *action);
+
+class PolarisSmu;
+
+// engine and memory clock DPM as "clocks start" and "clocks memory" do, for
+// the server; nothing if DPM already runs
+status_t PolarisStartPowerManagement(PolarisSmu &smu);

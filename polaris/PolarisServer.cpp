@@ -6,10 +6,12 @@
 #include "RadeonUnit.h"
 #include "Radeon.h"
 #include "PolarisInterrupts.h"
+#include "PolarisClocks.h"
 #include "PolarisSmu.h"
 #include "Units/GfxV8Unit.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "vi/gfx_8_0_d.h"
@@ -180,6 +182,16 @@ RadeonDevice::InitPolarisServer(int fd)
 
 	InstallUnit(GfxV8UnitNew(this));
 	CheckRet(InitUnits());
+
+	// clocks and voltages by GPU load; the GPU still works at its boot clocks
+	// without (RADEONGFX_DPM=0)
+	const char *dpm = getenv("RADEONGFX_DPM");
+	if (dpm == NULL || strcmp(dpm, "0") != 0) {
+		status_t status = PolarisStartPowerManagement(*fSmu.Get());
+		if (status < B_OK)
+			printf("[!] DPM: %s, staying at boot clocks\n", strerror(status));
+	} else
+		printf("DPM:       off (RADEONGFX_DPM=0)\n");
 
 	FillGfxInfo(fInfo, fGpuInfo);
 	printf("server:    Polaris ready\n");
