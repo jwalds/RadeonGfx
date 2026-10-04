@@ -93,6 +93,8 @@ executable('RadeonGfx',
 		'polaris/PolarisInterrupts.cpp',
 		'polaris/PolarisServer.cpp',
 		'polaris/PolarisDrmInfo.cpp',
+		'polaris/PolarisPowerPlay.cpp',
+		'polaris/PolarisClocks.cpp',
 		'Units/GfxV8Unit.cpp',
 	] + radeon_gfx_sources,
 	include_directories: [

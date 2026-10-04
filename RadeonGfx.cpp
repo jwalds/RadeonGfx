@@ -18,6 +18,7 @@
 #include "PolarisIhTest.h"
 #include "PolarisSdmaTest.h"
 #include "PolarisGfxTest.h"
+#include "PolarisClocks.h"
 #include "RenderDevice.h"
 #include <string.h>
 #include <signal.h>
@@ -81,6 +82,8 @@ int main(int argc, char** argv)
 		return PolarisIhTest() < B_OK ? 1 : 0;
 	if (argc >= 2 && strcmp(argv[1], "sdmatest") == 0)
 		return PolarisSdmaTest() < B_OK ? 1 : 0;
+	if (argc >= 2 && strcmp(argv[1], "clocks") == 0)
+		return PolarisClocks() < B_OK ? 1 : 0;
 	if (argc >= 2 && strcmp(argv[1], "gfxtest") == 0)
 		return PolarisGfxTest(argc >= 3
 			&& strcmp(argv[2], "--all-vm-contexts") == 0) < B_OK ? 1 : 0;
