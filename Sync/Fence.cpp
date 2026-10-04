@@ -40,9 +40,12 @@ void Fence::Signal()
 		{
 			AutoLocker<RecursiveLock, AutoLockerLocksLocking<RecursiveLock>> lock(&fLock);
 			handler = fHandlers.RemoveHead();
+			if (handler != NULL && !handler->Retain())
+				continue;
 		}
 		if (handler == NULL) return;
 		handler->Do(this);
+		handler->Unretain();
 	}
 }
 

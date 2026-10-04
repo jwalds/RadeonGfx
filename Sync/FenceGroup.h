@@ -26,11 +26,15 @@ private:
 		uint32 fIdx;
 
 		void Do(Fence *fence) override;
+		bool Retain() override;
+		void Unretain() override;
 	};
 
 	Flags fFlags;
 	ArrayDeleter<GroupHandler> fHandlers;
 	uint32 fCount, fRemainingCount;
+
+	bool TryAcquireReference();
 
 public:
 	FenceGroup(BReference<Fence> *fences, uint32 count, CreateFlags flags = {});

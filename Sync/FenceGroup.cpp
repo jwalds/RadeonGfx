@@ -34,6 +34,32 @@ void FenceGroup::GroupHandler::Do(Fence *fence)
 	}
 }
 
+// The group can lose its last reference in another thread while a fence
+// runs this handler: it is kept alive meanwhile, and a group whose last
+// reference is already gone (its destructor waits for the fence's lock) is
+// skipped.
+bool FenceGroup::GroupHandler::Retain()
+{
+	return fGroup->TryAcquireReference();
+}
+
+void FenceGroup::GroupHandler::Unretain()
+{
+	fGroup->ReleaseReference();
+}
+
+bool FenceGroup::TryAcquireReference()
+{
+	int32 count = atomic_get(&fReferenceCount);
+	while (count > 0) {
+		int32 oldCount = atomic_test_and_set(&fReferenceCount, count + 1, count);
+		if (oldCount == count)
+			return true;
+		count = oldCount;
+	}
+	return false;
+}
+
 FenceGroup::FenceGroup(BReference<Fence> *fences, uint32 count, CreateFlags flags)
 {
 	fFlags.all = flags.all;

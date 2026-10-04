@@ -38,6 +38,11 @@ public:
 	class Handler: public DoublyLinkedListLinkImpl<Handler> {
 	public:
 		virtual void Do(Fence *fence) = 0;
+		// Signal() calls Do() outside of the fence's lock; a handler that is
+		// part of an object deleted from another thread keeps it alive with
+		// these (Retain() runs under the lock and may refuse a dying object)
+		virtual bool Retain() {return true;}
+		virtual void Unretain() {}
 	};
 
 	template<typename DoFn>
