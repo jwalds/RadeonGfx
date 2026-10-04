@@ -27,9 +27,11 @@
 /** \file
  * This is a PowerPlay table header file
  */
-#pragma pack(push, 1)
 
 #include "atombios/atombios.h"
+
+/* after atombios.h, which resets the packing at its end */
+#pragma pack(push, 1)
 
 #define ATOM_TONGA_PP_FANPARAMETERS_TACHOMETER_PULSES_PER_REVOLUTION_MASK 0x0f
 #define ATOM_TONGA_PP_FANPARAMETERS_NOFAN                                 0x80    /* No fan is connected to this controller. */

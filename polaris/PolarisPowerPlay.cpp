@@ -42,11 +42,6 @@ PolarisPowerPlay::Init(const uint8 *rom, size_t size)
 		table->sHeader.ucTableFormatRevision,
 		table->sHeader.ucTableContentRevision,
 		table->sHeader.usStructureSize);
-	for (uint32 i = 0; i < 96; i++)
-		printf("%02x%s", rom[tableOffset + i], i % 32 == 31 ? "\n" : " ");
-	printf("sizeof(ATOM_Tonga_POWERPLAYTABLE) %zu, offsetof caps %zu\n",
-		sizeof(ATOM_Tonga_POWERPLAYTABLE),
-		offsetof(ATOM_Tonga_POWERPLAYTABLE, ulPlatformCaps));
 	const uint8 *base = rom + tableOffset;
 	size_t tableSize = size - tableOffset;
 
