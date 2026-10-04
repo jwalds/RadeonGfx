@@ -4,6 +4,14 @@
 #include <stddef.h>
 
 #include "vi/pptable_v1_0.h"
+#include "atombios/atom.h"
+
+
+enum {
+	kVirtualVoltageId0 = 0xff01,
+	kVirtualVoltageCount = 8,
+	kMaxSafeVoltage = 2000,		// mV
+};
 
 
 template<typename Type>
@@ -36,12 +44,6 @@ PolarisPowerPlay::Init(const uint8 *rom, size_t size)
 		= At<ATOM_Tonga_POWERPLAYTABLE>(rom, size, tableOffset);
 	if (table == NULL)
 		return B_BAD_DATA;
-	printf("PowerPlay: ROM header at %#x, master data table at %#x, PowerPlay"
-		" table at %#zx: format %u.%u, size %u\n", *romHeaderOffset,
-		romHeader->usMasterDataTableOffset, tableOffset,
-		table->sHeader.ucTableFormatRevision,
-		table->sHeader.ucTableContentRevision,
-		table->sHeader.usStructureSize);
 	const uint8 *base = rom + tableOffset;
 	size_t tableSize = size - tableOffset;
 
@@ -52,6 +54,12 @@ PolarisPowerPlay::Init(const uint8 *rom, size_t size)
 	fPowerLimit = table->usPowerControlLimit;
 	if (table->sHeader.ucTableFormatRevision < 7)
 		return B_NOT_SUPPORTED;
+
+	const ATOM_Tonga_PowerTune_Table *powerTune
+		= At<ATOM_Tonga_PowerTune_Table>(base, tableSize,
+			table->usPowerTuneTableOffset);
+	if (powerTune != NULL)
+		fClockStretchAmount = powerTune->usClockStretchAmount;
 
 	const ATOM_Tonga_Voltage_Lookup_Table *vddc
 		= At<ATOM_Tonga_Voltage_Lookup_Table>(base, tableSize,
@@ -85,8 +93,8 @@ PolarisPowerPlay::Init(const uint8 *rom, size_t size)
 			cksv = record.ucCKSVOffsetandDisable;
 		}
 		fSclk[i].clock = clock;
-		fSclk[i].vddc = vddInd < fVddcCount ? fVddc[vddInd] : 0;
-		fSclk[i].enabled = (cksv & 0x80) == 0;
+		fSclk[i].vddcIndex = vddInd;
+		fSclk[i].cksEnable = (cksv & 0x80) == 0;
 	}
 
 	const ATOM_Tonga_MCLK_Dependency_Table *mclk
@@ -99,12 +107,95 @@ PolarisPowerPlay::Init(const uint8 *rom, size_t size)
 	for (uint32 i = 0; i < fMclkCount; i++) {
 		const ATOM_Tonga_MCLK_Dependency_Record &record = mclk->entries[i];
 		fMclk[i].clock = record.ulMclk;
-		fMclk[i].vddc = record.ucVddcInd < fVddcCount
-			? fVddc[record.ucVddcInd] : 0;
+		fMclk[i].vddcIndex = record.ucVddcInd;
 		fMclk[i].vddci = record.usVddci;
 		fMclk[i].mvdd = record.usMvdd;
 	}
+	UpdateLevelVoltages();
 	return B_OK;
+}
+
+
+// Replaces the virtual voltage IDs (0xff01..0xff08) of the VDDC lookup table
+// with the voltages the VBIOS computes for this chip's leakage (EVV, Linux
+// smu7_get_evv_voltages). Only runs ATOM GetVoltageInfo; changes no voltage.
+status_t
+PolarisPowerPlay::ResolveVoltages(atom_context *atom)
+{
+	for (uint32 id = 0; id < kVirtualVoltageCount; id++) {
+		uint16 virtualId = kVirtualVoltageId0 + id;
+
+		// the lowest sclk level that uses this voltage
+		uint32 level = 0;
+		for (; level < fSclkCount; level++) {
+			if (fSclk[level].vddcIndex < fVddcCount
+				&& fVddc[fSclk[level].vddcIndex] == virtualId)
+				break;
+		}
+		if (level >= fSclkCount)
+			continue;
+		uint32 sclk = fSclk[level].clock;
+		if (fClockStretchAmount != 0) {
+			for (uint32 i = 1; i < fSclkCount; i++) {
+				if (fSclk[i].clock == sclk && !fSclk[i].cksEnable) {
+					sclk += 5000;
+					break;
+				}
+			}
+		}
+
+		union {
+			GET_VOLTAGE_INFO_INPUT_PARAMETER_V1_3 in;
+			GET_EVV_VOLTAGE_INFO_OUTPUT_PARAMETER_V1_3 out;
+		} args = {};
+		args.in.ucVoltageType = VOLTAGE_TYPE_VDDC;
+		args.in.ucVoltageMode = ATOM_GET_VOLTAGE_EVV_VOLTAGE;
+		args.in.usVoltageLevel = virtualId;
+		args.in.ulSCLKFreq = sclk;
+		status_t status = atom_execute_table(atom,
+			GetIndexIntoMasterTable(COMMAND, GetVoltageInfo), (uint32*)&args);
+		if (status < B_OK)
+			return status;
+
+		// in 0.01 mV
+		uint32 voltage = args.out.ulVoltageLevel / 100;
+		if (voltage == 0 || voltage >= kMaxSafeVoltage) {
+			printf("[!] PowerPlay: EVV voltage %" B_PRIu32 " mV for %#x at %"
+				B_PRIu32 " MHz is out of range\n", voltage, virtualId,
+				sclk / 100);
+			return B_BAD_DATA;
+		}
+		for (uint32 i = 0; i < fVddcCount; i++) {
+			if (fVddc[i] == virtualId)
+				fVddc[i] = voltage;
+		}
+	}
+	UpdateLevelVoltages();
+	return B_OK;
+}
+
+
+void
+PolarisPowerPlay::UpdateLevelVoltages()
+{
+	for (uint32 i = 0; i < fSclkCount; i++) {
+		fSclk[i].vddc = fSclk[i].vddcIndex < fVddcCount
+			? fVddc[fSclk[i].vddcIndex] : 0;
+	}
+	for (uint32 i = 0; i < fMclkCount; i++) {
+		fMclk[i].vddc = fMclk[i].vddcIndex < fVddcCount
+			? fVddc[fMclk[i].vddcIndex] : 0;
+	}
+}
+
+
+static void
+PrintVoltage(uint16 voltage)
+{
+	if (voltage >= kVirtualVoltageId0)
+		printf("%#x", voltage);
+	else
+		printf("%4u mV", voltage);
 }
 
 
@@ -112,17 +203,20 @@ void
 PolarisPowerPlay::Print()
 {
 	printf("PowerPlay: table revision %u, caps %#" B_PRIx32 ", overdrive"
-		" limits %" B_PRIu32 " / %" B_PRIu32 " MHz, power limit %u W\n",
-		fTableRevision, fPlatformCaps, fMaxOdSclk / 100, fMaxOdMclk / 100,
-		fPowerLimit);
+		" limits %" B_PRIu32 " / %" B_PRIu32 " MHz, power limit %u W, clock"
+		" stretch %u\n", fTableRevision, fPlatformCaps, fMaxOdSclk / 100,
+		fMaxOdMclk / 100, fPowerLimit, fClockStretchAmount);
 	for (uint32 i = 0; i < fSclkCount; i++) {
-		printf("  sclk %" B_PRIu32 ": %4" B_PRIu32 " MHz, %4u mV%s\n", i,
-			fSclk[i].clock / 100, fSclk[i].vddc,
-			fSclk[i].enabled ? "" : " (disabled)");
+		printf("  sclk %" B_PRIu32 ": %4" B_PRIu32 " MHz, ", i,
+			fSclk[i].clock / 100);
+		PrintVoltage(fSclk[i].vddc);
+		printf("%s\n", fSclk[i].cksEnable ? "" : ", no clock stretching");
 	}
 	for (uint32 i = 0; i < fMclkCount; i++) {
-		printf("  mclk %" B_PRIu32 ": %4" B_PRIu32 " MHz, vddc %4u mV, vddci %4u"
-			" mV, mvdd %4u mV\n", i, fMclk[i].clock / 100, fMclk[i].vddc,
-			fMclk[i].vddci, fMclk[i].mvdd);
+		printf("  mclk %" B_PRIu32 ": %4" B_PRIu32 " MHz, vddc ", i,
+			fMclk[i].clock / 100);
+		PrintVoltage(fMclk[i].vddc);
+		printf(", vddci %4u mV, mvdd %4u mV\n", fMclk[i].vddci,
+			fMclk[i].mvdd);
 	}
 }

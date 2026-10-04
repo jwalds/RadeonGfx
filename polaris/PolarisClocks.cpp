@@ -1,4 +1,5 @@
 #include "PolarisClocks.h"
+#include "Atombios.h"
 #include "PolarisPowerPlay.h"
 #include "PolarisSmu.h"
 #include "RenderDevice.h"
@@ -39,8 +40,15 @@ PolarisClocks()
 	status_t status = powerPlay.Init((const uint8*)rom, info.rom_size);
 	if (status < B_OK)
 		printf("[!] PowerPlay table: %s\n", strerror(status));
-	else
+	else {
+		Atombios atombios;
+		status = atombios.Init(info.rom_area);
+		if (status >= B_OK)
+			status = powerPlay.ResolveVoltages(atombios.Context());
+		if (status < B_OK)
+			printf("[!] EVV voltages: %s\n", strerror(status));
 		powerPlay.Print();
+	}
 
 	BPath firmwareDir;
 	CheckRet(PolarisFirmwareDir(firmwareDir));

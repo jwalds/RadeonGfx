@@ -16,6 +16,7 @@ private:
 public:
 	Atombios();
 	status_t Init();
+	status_t Init(area_id romArea);
 	bool IsPosted();
 
 	inline atom_context *Context() {return fContext.Get();}

@@ -26,7 +26,16 @@ Atombios::Atombios()
 
 status_t Atombios::Init()
 {
-	fBiosArea.SetTo(clone_area("AtomBIOS", (void**)&fBios, B_ANY_ADDRESS, B_READ_AREA | B_WRITE_AREA, gDevice.SharedInfo()->rom_area));
+	return Init(gDevice.SharedInfo()->rom_area);
+}
+
+status_t Atombios::Init(area_id romArea)
+{
+	fBiosArea.SetTo(clone_area("AtomBIOS", (void**)&fBios, B_ANY_ADDRESS, B_READ_AREA | B_WRITE_AREA, romArea));
+	if (!fBiosArea.IsSet()) {
+		// the VBIOS copy may be read only; the interpreter doesn't write it
+		fBiosArea.SetTo(clone_area("AtomBIOS", (void**)&fBios, B_ANY_ADDRESS, B_READ_AREA, romArea));
+	}
 	CheckRet(fBiosArea.Get());
 	fContext.SetTo(atom_parse(&sCardInfo, fBios));
 	if (!fContext.IsSet()) return B_ERROR;
