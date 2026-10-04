@@ -18,6 +18,7 @@
 #include "vi/gmc_8_1_sh_mask.h"
 #include "vi/bif_5_0_d.h"
 #include "vi/bif_5_0_sh_mask.h"
+#include "vi/pptable_v1_0.h"
 
 #define CheckRet(err) {status_t _err = (err); if (_err < B_OK) return _err;}
 
@@ -143,9 +144,9 @@ PolarisDpm::HasVoltageObject(uint8 type, uint8 mode)
 		= (const ATOM_VOLTAGE_OBJECT_INFO_V3_1*)start;
 	size_t size = info->sHeader.usStructureSize;
 	size_t offset = offsetof(ATOM_VOLTAGE_OBJECT_INFO_V3_1, asVoltageObj);
-	while (offset + sizeof(VOLTAGE_OBJECT_HEADER_V3) <= size) {
-		const VOLTAGE_OBJECT_HEADER_V3 *header
-			= (const VOLTAGE_OBJECT_HEADER_V3*)(start + offset);
+	while (offset + sizeof(ATOM_VOLTAGE_OBJECT_HEADER_V3) <= size) {
+		const ATOM_VOLTAGE_OBJECT_HEADER_V3 *header
+			= (const ATOM_VOLTAGE_OBJECT_HEADER_V3*)(start + offset);
 		if (header->ucVoltageType == type && header->ucVoltageMode == mode)
 			return true;
 		if (header->usSize == 0)
