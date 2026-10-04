@@ -38,7 +38,8 @@ public:
 	// MC arbiter timings (through the VBIOS) and the DPM table into SMC RAM
 	status_t Upload();
 
-	// enables engine clock DPM and, if memoryDpm, memory clock DPM
+	// enables engine clock DPM and, if memoryDpm, memory clock DPM (only
+	// for switching to the highest memory clock)
 	status_t Start(bool memoryDpm);
 
 	bool IsRunning();
@@ -83,6 +84,7 @@ private:
 	void BuildBootLevel();
 	status_t BuildArbTable();
 	void SwitchArbSet(uint32 source, uint32 destination);
+	void ProgramDisplayGap();
 
 	PolarisSmu &fSmu;
 	PolarisPowerPlay &fPowerPlay;
@@ -91,6 +93,7 @@ private:
 	size_t fRomSize;
 
 	BootState fBoot{};
+	uint32 fXclk = 0;				// 10 kHz
 	VoltageControl fVddcControl = kVoltageControlNone;
 	VoltageControl fVddciControl = kVoltageControlNone;
 	VoltageControl fMvddControl = kVoltageControlNone;

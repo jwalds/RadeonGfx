@@ -47,6 +47,7 @@
 #define SMU7_STATICSCREENTHRESHOLD_DFLT		0x00c8
 #define SMU7_SCLK_TARGETACTIVITY_DFLT		30
 
+#define DISPLAY_GAP_VBLANK_OR_WM	0
 #define DISPLAY_GAP_VBLANK			1
 #define DISPLAY_GAP_IGNORE			3
 
@@ -315,6 +316,15 @@ PolarisDpm::Init()
 	fBoot.vddci = firmwareInfo->usBootUpVDDCIVoltage;
 	fBoot.mvdd = firmwareInfo->usBootUpMVDDCVoltage;
 
+	// vi_get_xclk()
+	fXclk = firmwareInfo->usCoreReferenceClock;
+	if ((fSmu.ReadIndirect(ixCG_CLKPIN_CNTL_2)
+			& CG_CLKPIN_CNTL_2__MUX_TCLK_TO_XCLK_MASK) != 0)
+		fXclk = 1000;
+	else if ((fSmu.ReadIndirect(ixCG_CLKPIN_CNTL)
+			& CG_CLKPIN_CNTL__XTALIN_DIVIDE_MASK) != 0)
+		fXclk /= 4;
+
 	uint32 speed = ReadPcie(ixPCIE_LC_SPEED_CNTL);
 	fBoot.pcieGen = (speed & PCIE_LC_SPEED_CNTL__LC_CURRENT_DATA_RATE_MASK)
 		>> PCIE_LC_SPEED_CNTL__LC_CURRENT_DATA_RATE__SHIFT;
@@ -425,8 +435,8 @@ PolarisDpm::Print()
 	printf("  voltage control: vddc %s, vddci %s, mvdd %s\n",
 		VoltageControlName(fVddcControl), VoltageControlName(fVddciControl),
 		VoltageControlName(fMvddControl));
-	printf("  memory: %s, %" B_PRIu32 " bit\n", fGddr5 ? "GDDR5" : "not GDDR5",
-		fVramWidth);
+	printf("  memory: %s, %" B_PRIu32 " bit; reference clock %" B_PRIu32
+		" MHz\n", fGddr5 ? "GDDR5" : "not GDDR5", fVramWidth, fXclk / 100);
 	printf("  GPIO pins: VR hot %u, AC/DC %u, thermal out %u\n", fVrHotGpio,
 		fAcDcGpio, fThermOutGpio);
 	for (uint32 i = 0; i < fSclkRangeCount; i++) {
@@ -1073,8 +1083,35 @@ PolarisDpm::Start(bool memoryDpm)
 	CheckRet(fSmu.SendMessage(PPSMC_MSG_SCLKDPM_SetEnabledMask,
 		fSclkEnableMask));
 	if (memoryDpm) {
+		// switching the memory clock needs long enough vertical blanks, which
+		// isn't checked (Linux smu7_vblank_too_short()): the memory clock is
+		// switched once to its highest level
+		ProgramDisplayGap();
 		CheckRet(fSmu.SendMessage(PPSMC_MSG_MCLKDPM_SetEnabledMask,
-			fMclkEnableMask));
+			1 << (fMclkCount - 1)));
 	}
 	return B_OK;
+}
+
+
+// smu7_program_display_gap() for one 60 Hz display
+void
+PolarisDpm::ProgramDisplayGap()
+{
+	const uint32 frameTime = 1000000 / 60;		// us
+	const uint32 minVblankTime = 0;				// us
+	uint32 preVblankTime = frameTime - 200 - minVblankTime;
+
+	uint32 value = fSmu.ReadIndirect(ixCG_DISPLAY_GAP_CNTL);
+	value &= ~CG_DISPLAY_GAP_CNTL__DISP_GAP_MASK;
+	value |= DISPLAY_GAP_VBLANK_OR_WM << CG_DISPLAY_GAP_CNTL__DISP_GAP__SHIFT;
+	fSmu.WriteIndirect(ixCG_DISPLAY_GAP_CNTL, value);
+
+	// in reference clock ticks
+	fSmu.WriteIndirect(ixCG_DISPLAY_GAP_CNTL2, preVblankTime * (fXclk / 100));
+	fSmu.WriteIndirect(fSoftRegsStart
+		+ offsetof(SMU74_SoftRegisters, PreVBlankGap), 0x64);
+	fSmu.WriteIndirect(fSoftRegsStart
+		+ offsetof(SMU74_SoftRegisters, VBlankTimeout),
+		frameTime - preVblankTime);
 }
