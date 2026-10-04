@@ -41,6 +41,8 @@ public:
 	// enables engine clock DPM and, if memoryDpm, memory clock DPM (only
 	// for switching to the highest memory clock)
 	status_t Start(bool memoryDpm);
+	// memory clock DPM once Start(false) is done
+	status_t StartMemory();
 
 	bool IsRunning();
 
@@ -85,6 +87,7 @@ private:
 	status_t BuildArbTable();
 	void SwitchArbSet(uint32 source, uint32 destination);
 	void ProgramDisplayGap();
+	status_t EnableMemoryDpm();
 
 	PolarisSmu &fSmu;
 	PolarisPowerPlay &fPowerPlay;

@@ -91,10 +91,20 @@ PolarisClocks(const char *action)
 
 	if (action == NULL)
 		return B_OK;
+	if (strcmp(action, "memory") == 0) {
+		printf("starting memory clock DPM\n");
+		CheckRet(dpm.StartMemory());
+		for (int i = 0; i < 5; i++) {
+			snooze(500000);
+			PrintCurrentClocks(smu);
+		}
+		return B_OK;
+	}
 	bool start = strcmp(action, "start") == 0;
 	bool startMemory = strcmp(action, "start-memory") == 0;
 	if (!start && !startMemory && strcmp(action, "upload") != 0) {
-		printf("unknown action %s (upload, start, start-memory)\n", action);
+		printf("unknown action %s (upload, start, start-memory, memory,"
+			" watch)\n", action);
 		return B_BAD_VALUE;
 	}
 

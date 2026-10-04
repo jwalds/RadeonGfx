@@ -1064,19 +1064,8 @@ PolarisDpm::Start(bool memoryDpm)
 	fSmu.WriteIndirect(handshake, fSmu.ReadIndirect(handshake)
 		| SMU7_VCE_SCLK_HANDSHAKE_DISABLE);
 	CheckRet(fSmu.SendMessage(PPSMC_MSG_DPM_Enable, 0));
-	if (memoryDpm) {
-		ProgramDisplayGap();
-		CheckRet(fSmu.SendMessage(PPSMC_MSG_MCLKDPM_Enable, 0));
-		WriteReg4AmdGpu(mmMC_SEQ_CNTL_3, ReadReg4AmdGpu(mmMC_SEQ_CNTL_3)
-			| MC_SEQ_CNTL_3__CAC_EN_MASK);
-		fSmu.WriteIndirect(ixLCAC_MC0_CNTL, 0x5);
-		fSmu.WriteIndirect(ixLCAC_MC1_CNTL, 0x5);
-		fSmu.WriteIndirect(ixLCAC_CPL_CNTL, 0x100005);
-		snooze(10);
-		fSmu.WriteIndirect(ixLCAC_MC0_CNTL, 0x400005);
-		fSmu.WriteIndirect(ixLCAC_MC1_CNTL, 0x400005);
-		fSmu.WriteIndirect(ixLCAC_CPL_CNTL, 0x500005);
-	}
+	if (memoryDpm)
+		CheckRet(EnableMemoryDpm());
 	CheckRet(fSmu.SendMessage(PPSMC_MSG_PCIeDPM_Disable, 0));
 
 	// smu7_enable_thermal_auto_throttle()
@@ -1094,6 +1083,40 @@ PolarisDpm::Start(bool memoryDpm)
 			fMclkEnableMask));
 	}
 	return B_OK;
+}
+
+
+// the memory part of smu7_enable_sclk_mclk_dpm()
+status_t
+PolarisDpm::EnableMemoryDpm()
+{
+	ProgramDisplayGap();
+	CheckRet(fSmu.SendMessage(PPSMC_MSG_MCLKDPM_Enable, 0));
+	WriteReg4AmdGpu(mmMC_SEQ_CNTL_3, ReadReg4AmdGpu(mmMC_SEQ_CNTL_3)
+		| MC_SEQ_CNTL_3__CAC_EN_MASK);
+	fSmu.WriteIndirect(ixLCAC_MC0_CNTL, 0x5);
+	fSmu.WriteIndirect(ixLCAC_MC1_CNTL, 0x5);
+	fSmu.WriteIndirect(ixLCAC_CPL_CNTL, 0x100005);
+	snooze(10);
+	fSmu.WriteIndirect(ixLCAC_MC0_CNTL, 0x400005);
+	fSmu.WriteIndirect(ixLCAC_MC1_CNTL, 0x400005);
+	fSmu.WriteIndirect(ixLCAC_CPL_CNTL, 0x500005);
+	return B_OK;
+}
+
+
+// memory clock DPM after Start(false); the table and arbiter timings in SMC
+// RAM are still those of Upload()
+status_t
+PolarisDpm::StartMemory()
+{
+	if (!IsRunning()) {
+		printf("[!] DPM: not running\n");
+		return B_NOT_INITIALIZED;
+	}
+	CheckRet(EnableMemoryDpm());
+	return fSmu.SendMessage(PPSMC_MSG_MCLKDPM_SetEnabledMask,
+		fMclkEnableMask);
 }
 
 
