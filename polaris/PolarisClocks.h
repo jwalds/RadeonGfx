@@ -9,6 +9,7 @@
 //   start         upload, then engine clock DPM
 //   start-memory  upload, then engine and memory clock DPM
 //   memory        memory clock DPM after start
+//   reload        new engine clock levels for a running DPM
 //   watch         prints the current clocks for 15 s
 //   sclk-mask=M   restricts engine clock DPM to the levels in mask M
 status_t PolarisClocks(const char *action);

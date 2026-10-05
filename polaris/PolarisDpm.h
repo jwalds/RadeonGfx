@@ -43,6 +43,8 @@ public:
 	status_t Start(bool memoryDpm);
 	// memory clock DPM once Start(false) is done
 	status_t StartMemory();
+	// new engine clock levels (voltages) for a running DPM
+	status_t ReloadGraphicsLevels();
 
 	bool IsRunning();
 

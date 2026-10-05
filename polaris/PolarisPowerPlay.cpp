@@ -194,14 +194,12 @@ PolarisPowerPlay::ResolveVoltages(atom_context *atom)
 		if (level >= fSclkCount)
 			continue;
 		uint32 sclk = fSclk[level].clock;
-		if (fClockStretchAmount != 0) {
-			for (uint32 i = 1; i < fSclkCount; i++) {
-				if (fSclk[i].clock == sclk && !fSclk[i].cksEnable) {
-					sclk += 5000;
-					break;
-				}
-			}
-		}
+		// Linux adds 50 MHz for the levels without clock stretching; it is
+		// never enabled here (PolarisDpm), so every level gets the margin.
+		// With the VBIOS voltages of the stretching levels the GPU hung under
+		// glmark2 when switching through them.
+		if (fClockStretchAmount != 0 && level > 0)
+			sclk += 5000;
 
 		union {
 			GET_VOLTAGE_INFO_INPUT_PARAMETER_V1_3 in;

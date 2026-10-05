@@ -1141,3 +1141,23 @@ PolarisDpm::ProgramDisplayGap()
 		+ offsetof(SMU74_SoftRegisters, VBlankTimeout),
 		frameTime - preVblankTime);
 }
+
+
+// polaris10_populate_and_upload_sclk_mclk_dpm_levels() with
+// smu7_freeze_sclk_mclk_dpm(): the engine clock levels are replaced while
+// DPM runs
+status_t
+PolarisDpm::ReloadGraphicsLevels()
+{
+	if (!fTableBuilt)
+		return B_NOT_INITIALIZED;
+	if (!IsRunning())
+		return B_NOT_INITIALIZED;
+	CheckRet(fSmu.SendMessage(PPSMC_MSG_SCLKDPM_FreezeLevel, 0));
+	status_t status = CopyToSmc(fDpmTableStart
+		+ offsetof(SMU74_Discrete_DpmTable, GraphicsLevel),
+		fTable.GraphicsLevel, sizeof(fTable.GraphicsLevel));
+	status_t unfreezeStatus
+		= fSmu.SendMessage(PPSMC_MSG_SCLKDPM_UnfreezeLevel, 0);
+	return status < B_OK ? status : unfreezeStatus;
+}

@@ -101,6 +101,12 @@ PolarisClocks(const char *action)
 
 	if (action == NULL)
 		return B_OK;
+	if (strcmp(action, "reload") == 0) {
+		printf("reloading the engine clock levels\n");
+		CheckRet(dpm.ReloadGraphicsLevels());
+		PrintCurrentClocks(smu);
+		return B_OK;
+	}
 	if (strcmp(action, "memory") == 0) {
 		printf("starting memory clock DPM\n");
 		CheckRet(dpm.StartMemory());
