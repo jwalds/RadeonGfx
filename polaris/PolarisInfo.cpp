@@ -103,6 +103,13 @@ PrintEngineState(const RegisterReader &regs)
 		regs.Read(mmCP_IB1_BASE_LO), regs.Read(mmCP_IB1_BUFSZ),
 		regs.Read(mmCP_IB2_BASE_HI), regs.Read(mmCP_IB2_BASE_LO),
 		regs.Read(mmCP_IB2_BUFSZ));
+	printf("  CP_STALLED_STAT1 %#010" B_PRIx32 ", STAT2 %#010" B_PRIx32
+		", STAT3 %#010" B_PRIx32 "\n", regs.Read(mmCP_STALLED_STAT1),
+		regs.Read(mmCP_STALLED_STAT2), regs.Read(mmCP_STALLED_STAT3));
+	printf("  CP_PFP_HEADER_DUMP %#010" B_PRIx32 ", CP_ME_HEADER_DUMP %#010"
+		B_PRIx32 ", CP_CE_HEADER_DUMP %#010" B_PRIx32 "\n",
+		regs.Read(mmCP_PFP_HEADER_DUMP), regs.Read(mmCP_ME_HEADER_DUMP),
+		regs.Read(mmCP_CE_HEADER_DUMP));
 	printf("  VM_CONTEXT1_PROTECTION_FAULT_STATUS %#010" B_PRIx32 ", ADDR %#"
 		B_PRIx32 "\n", regs.Read(mmVM_CONTEXT1_PROTECTION_FAULT_STATUS),
 		regs.Read(mmVM_CONTEXT1_PROTECTION_FAULT_ADDR));
