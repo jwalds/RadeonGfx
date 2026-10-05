@@ -309,10 +309,15 @@ BReference<BufferObject> MemoryManager::Alloc(MemoryDomain domain, uint64 size, 
 	ExternalAllocator& pool = fDomainPools[domain];
 	//printf("  pool: %p\n", &pool);
 	uint64 gpuPhysAdr;
-	if (alignment > B_PAGE_SIZE) {
-		if (!pool.AllocAligned(gpuPhysAdr, size, alignment)) return NULL;
-	} else {
-		if (!pool.Alloc(gpuPhysAdr, size)) return NULL;
+	bool allocated = alignment > B_PAGE_SIZE
+		? pool.AllocAligned(gpuPhysAdr, size, alignment)
+		: pool.Alloc(gpuPhysAdr, size);
+	if (!allocated) {
+		printf("[!] MemoryManager: no space for %" B_PRIu64 " bytes (alignment %"
+			B_PRIu64 ") in domain %d: %" B_PRIu64 " of %" B_PRIu64 " bytes"
+			" allocated\n", size, alignment, (int)domain, pool.AllocSize(),
+			pool.TotalSize());
+		return NULL;
 	}
 	// printf("MemoryManager::Alloc(%#" B_PRIx64 ") -> %#" B_PRIx64 "\n", size, gpuPhysAdr);
 	BReference<BufferObject> buffer(new BufferObject(), true);

@@ -59,6 +59,16 @@ TeamState::TeamState(team_id team):
 TeamState::~TeamState()
 {
 	printf("-TeamState(%" B_PRId32 ")\n", fTeam);
+	// left over memory hints at leaks
+	if (auto memMgr = gDevice.MemMgr().Switch()) {
+		uint64 total, vram, vramMappable, gtt;
+		memMgr->GetUsage(total, vram, boDomainVram);
+		memMgr->GetUsage(total, vramMappable, boDomainVramMappable);
+		memMgr->GetUsage(total, gtt, boDomainGtt);
+		printf("  memory in use: VRAM %" B_PRIu64 " MB, visible VRAM %" B_PRIu64
+			" MB, GTT %" B_PRIu64 " MB\n", vram >> 20, vramMappable >> 20,
+			gtt >> 20);
+	}
 }
 
 void TeamState::FirstReferenceAcquired()
