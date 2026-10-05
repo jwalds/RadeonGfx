@@ -90,11 +90,21 @@ void RadeonRingBuffer::WriteFence(RingFence *fence)
 status_t RadeonRingBuffer::Begin(uint32 len)
 {
 	//printf("RadeonRingBuffer::Begin(%" B_PRIu32 ")\n", len);
+	// End() pads to 4 dwords
+	len += 3;
 	if (len > fSize) return B_NO_MEMORY;
 	UpdateRptr();
+	static int32 sFullCount = 0;
+	if (len > FreeSize() && sFullCount++ < 10) {
+		printf("ring: full (%" B_PRIu32 " dwords pending), waiting for a"
+			" fence\n", PendingSize());
+	}
 	while (len > FreeSize()) {
 		RingFence *fence = fFences.First();
-		if (fence == NULL) B_ERROR;
+		if (fence == NULL) {
+			printf("[!] ring: full without fences\n");
+			return B_ERROR;
+		}
 		CheckRet(fence->Wait());
 		UpdateRptr();
 	}
