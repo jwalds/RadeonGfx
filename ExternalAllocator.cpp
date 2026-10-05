@@ -58,13 +58,26 @@ bool ExternalAllocator::Alloc(uint64_t &ptr, uint64_t size)
 
 bool ExternalAllocator::AllocAligned(uint64_t &ptr, uint64_t size, uint64_t align)
 {
-	Block *block = fSizeMap.FindClosest(size + (align - 1), false);
-	if (block == NULL)
-		return false;
+	// the smallest free block that has room for an aligned block of size,
+	// not only blocks of size + align - 1
+	for (Block *block = fSizeMap.FindClosest(size, false); block != NULL;
+			block = fSizeMap.Next(block)) {
+		uint64_t retPtr = RoundUp(block->fAdr, align);
+		if (retPtr + size <= block->fAdr + block->fSize) {
+			ptr = retPtr;
+			return AllocAt(retPtr, size);
+		}
+	}
+	return false;
+}
 
-	uint64_t retPtr = RoundUp(block->fAdr, align);
-	ptr = retPtr;
-	return AllocAt(retPtr, size);
+void ExternalAllocator::GetFreeStats(uint64_t &largest, uint32_t &count)
+{
+	Block *block = fSizeMap.RightMost();
+	largest = block != NULL ? block->fSize : 0;
+	count = 0;
+	for (block = fSizeMap.LeftMost(); block != NULL; block = fSizeMap.Next(block))
+		count++;
 }
 
 bool ExternalAllocator::AllocAt(uint64_t ptr, uint64_t size)

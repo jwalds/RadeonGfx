@@ -313,10 +313,14 @@ BReference<BufferObject> MemoryManager::Alloc(MemoryDomain domain, uint64 size, 
 		? pool.AllocAligned(gpuPhysAdr, size, alignment)
 		: pool.Alloc(gpuPhysAdr, size);
 	if (!allocated) {
+		uint64 largest;
+		uint32 freeCount;
+		pool.GetFreeStats(largest, freeCount);
 		printf("[!] MemoryManager: no space for %" B_PRIu64 " bytes (alignment %"
 			B_PRIu64 ") in domain %d: %" B_PRIu64 " of %" B_PRIu64 " bytes"
-			" allocated\n", size, alignment, (int)domain, pool.AllocSize(),
-			pool.TotalSize());
+			" allocated, %" B_PRIu32 " free blocks, largest %" B_PRIu64 "\n",
+			size, alignment, (int)domain, pool.AllocSize(), pool.TotalSize(),
+			freeCount, largest);
 		return NULL;
 	}
 	// printf("MemoryManager::Alloc(%#" B_PRIx64 ") -> %#" B_PRIx64 "\n", size, gpuPhysAdr);

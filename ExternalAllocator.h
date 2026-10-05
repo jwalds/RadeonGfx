@@ -93,5 +93,7 @@ public:
 	inline uint64_t TotalSize() {return fTotalSize;}
 	inline uint64_t AllocSize() {return fAllocSize;}
 
+	// the largest free block and the number of free blocks
+	void GetFreeStats(uint64_t &largest, uint32_t &count);
 	void Dump();
 };
