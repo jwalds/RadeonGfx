@@ -323,6 +323,13 @@ BReference<BufferObject> MemoryManager::Alloc(MemoryDomain domain, uint64 size, 
 			freeCount, largest);
 		return NULL;
 	}
+	// growth of a domain in 64 MB steps, to spot leaks
+	static uint64 sReported[3] = {};
+	if (domain <= boDomainGtt && pool.AllocSize() >= sReported[domain] + (64 << 20)) {
+		sReported[domain] = pool.AllocSize() / (64 << 20) * (64 << 20);
+		printf("memory: domain %d at %" B_PRIu64 " MB\n", (int)domain,
+			pool.AllocSize() >> 20);
+	}
 	// printf("MemoryManager::Alloc(%#" B_PRIx64 ") -> %#" B_PRIx64 "\n", size, gpuPhysAdr);
 	BReference<BufferObject> buffer(new BufferObject(), true);
 	buffer->domain = domain;
