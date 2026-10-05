@@ -404,7 +404,18 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 				} else {
 					domain = boDomainGtt;
 				}
-				int32 handle = teamState.Switch()->AllocBuffer(domain, args->in.bo_size, args->in.alignment, 0);
+				// The alignment only matters for the GPU virtual address, which
+				// the client picks; physically GTT pages are mapped one by one
+				// and VRAM needs at most the PTE fragment size. RADV asks for
+				// its max_alignment (16 MB here) for every allocation, which
+				// fragmented the GTT and visible VRAM pools until allocations
+				// failed with a fraction of them used.
+				uint64 alignment = args->in.alignment;
+				if (domain == boDomainGtt)
+					alignment = B_PAGE_SIZE;
+				else if (alignment > 64 * 1024)
+					alignment = 64 * 1024;
+				int32 handle = teamState.Switch()->AllocBuffer(domain, args->in.bo_size, alignment, 0);
 				if (handle < B_OK) return handle;
 				args->out.handle = handle;
 				return B_OK;
