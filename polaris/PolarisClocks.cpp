@@ -8,6 +8,7 @@
 #include "Radeon.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <OS.h>
 #include <Path.h>
@@ -40,6 +41,15 @@ PolarisClocks(const char *action)
 	}
 	CheckRet(gDevice.InitPolaris(fd.Get(), true));
 
+	if (action != NULL && strncmp(action, "sclk-mask=", 10) == 0) {
+		// the engine clock levels DPM may use, e.g. 0x80 for the highest only
+		PolarisSmu smu;
+		uint32 mask = strtoul(action + 10, NULL, 0);
+		CheckRet(smu.SendMessage(PPSMC_MSG_SCLKDPM_SetEnabledMask, mask));
+		printf("engine clock levels %#" B_PRIx32 "\n", mask);
+		PrintCurrentClocks(smu);
+		return B_OK;
+	}
 	if (action != NULL && strcmp(action, "watch") == 0) {
 		// only the SMC's current clocks, every half second for 15 s
 		PolarisSmu smu;
