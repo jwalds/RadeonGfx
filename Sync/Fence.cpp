@@ -53,13 +53,19 @@ void Fence::Signal()
 
 void Fence::OnSignal(Handler *handler)
 {
-	AutoLocker<RecursiveLock, AutoLockerLocksLocking<RecursiveLock>> lock(&fLock);
-	TRACE("Fence(%p).OnSignal(%p)\n", this, handler);
-	if (!IsSignaled()) {
-		fHandlers.Insert(handler);
-	} else {
-		handler->Do(this);
+	{
+		AutoLocker<RecursiveLock, AutoLockerLocksLocking<RecursiveLock>> lock(&fLock);
+		TRACE("Fence(%p).OnSignal(%p)\n", this, handler);
+		if (!IsSignaled()) {
+			fHandlers.Insert(handler);
+			return;
+		}
 	}
+	// Not under the lock: the handler can take other locks (a CS takes the
+	// ring's domain), and Signal() of this fence can run under them (the
+	// interrupt thread holds the ring's domain): that deadlocked under
+	// glmark2 when the fence was signaled between the flag and the lock.
+	handler->Do(this);
 }
 
 void Fence::OnSignalCancel(Handler *handler)
