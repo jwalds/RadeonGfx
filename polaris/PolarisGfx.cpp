@@ -154,7 +154,7 @@ HaltCp()
 }
 
 
-static void __attribute__((unused))
+static void
 SoftReset()
 {
 	// gfx_v8_0_soft_reset(): reset RLC, GFX and the CP parts so a restart
@@ -278,8 +278,32 @@ PolarisGfx::InitHardware(uint64 ringAddress, uint32 ringDwords,
 	// keeps the CP busy (CPF_STATUS INTERRUPT_BUSY), also after a reset
 	WriteReg4AmdGpu(mmCP_INT_CNTL_RING0, 0);
 	HaltCp();
-	// SoftReset() isn't used: two runs with it hung the machine right
-	// after a fresh firmware load (Linux only resets to recover a hang)
+	// A GPU left hung by an earlier server (gfx_v8_0_check_soft_reset()):
+	// reset the graphics engine. Only then: two runs that always reset hung
+	// the machine right after a fresh firmware load.
+	uint32 grbmStatus = ReadReg4AmdGpu(mmGRBM_STATUS);
+	uint32 grbmStatus2 = ReadReg4AmdGpu(mmGRBM_STATUS2);
+	const uint32 kBusyMask = GRBM_STATUS__PA_BUSY_MASK
+		| GRBM_STATUS__SC_BUSY_MASK | GRBM_STATUS__BCI_BUSY_MASK
+		| GRBM_STATUS__SX_BUSY_MASK | GRBM_STATUS__TA_BUSY_MASK
+		| GRBM_STATUS__VGT_BUSY_MASK | GRBM_STATUS__DB_BUSY_MASK
+		| GRBM_STATUS__CB_BUSY_MASK | GRBM_STATUS__GDS_BUSY_MASK
+		| GRBM_STATUS__SPI_BUSY_MASK | GRBM_STATUS__IA_BUSY_MASK
+		| GRBM_STATUS__IA_BUSY_NO_DMA_MASK | GRBM_STATUS__CP_BUSY_MASK
+		| GRBM_STATUS__CP_COHERENCY_BUSY_MASK;
+	if ((grbmStatus & kBusyMask) != 0
+		|| (grbmStatus2 & (GRBM_STATUS2__CPF_BUSY_MASK
+			| GRBM_STATUS2__CPC_BUSY_MASK | GRBM_STATUS2__CPG_BUSY_MASK)) != 0) {
+		printf("GFX:       busy from an earlier run (GRBM_STATUS %#010" B_PRIx32
+			", GRBM_STATUS2 %#010" B_PRIx32 "): soft reset\n", grbmStatus,
+			grbmStatus2);
+		uint32 rlcCntl = ReadReg4AmdGpu(mmRLC_CNTL);
+		WriteReg4AmdGpu(mmRLC_CNTL, SET_FIELD(rlcCntl, RLC_CNTL, RLC_ENABLE_F32,
+			0));
+		SoftReset();
+		printf("GFX:       after the reset GRBM_STATUS %#010" B_PRIx32 "\n",
+			ReadReg4AmdGpu(mmGRBM_STATUS));
+	}
 
 	// *** gfx_v8_0_init_golden_registers()
 	for (uint32 i = 0; i < B_COUNT_OF(kGoldenSettings); i += 3) {
