@@ -21,6 +21,24 @@ extern "C" {
 #include "polaris/PolarisDrmInfo.h"
 
 
+// an absolute DRM timeout in ns (CLOCK_MONOTONIC) in system_time() units
+static bigtime_t
+TimeoutUs(uint64 timeoutNs)
+{
+	if (timeoutNs / 1000 >= (uint64)B_INFINITE_TIMEOUT)
+		return B_INFINITE_TIMEOUT;
+	return (bigtime_t)(timeoutNs / 1000);
+}
+
+
+// Linux returns -ETIME for a syncobj wait that timed out
+static status_t
+SyncobjWaitResult(status_t status)
+{
+	return status == B_TIMED_OUT ? ETIME : status;
+}
+
+
 ExternalPtr<TeamState> gTeamState;
 
 
@@ -595,9 +613,17 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 			}
 			case DRM_AMDGPU_WAIT_CS: {
 				auto *args = (union drm_amdgpu_wait_cs*)arg;
-				status_t res = teamState.Switch()->WaitCS(args->in.handle);
-				args->out.status = (res < B_OK) ? 1 : 0;
-				return res;
+				// not in the team's domain: other threads of the client go on
+				BReference<Fence> fence;
+				CheckRet(teamState.Switch()->CsFence(args->in.handle, fence));
+				status_t res = B_OK;
+				if (fence.IsSet()) {
+					res = fence->WaitNonDomain(B_ABSOLUTE_TIMEOUT,
+						TimeoutUs(args->in.timeout));
+				}
+				// as Linux: busy is status 1, not an error
+				args->out.status = res == B_TIMED_OUT ? 1 : 0;
+				return res == B_TIMED_OUT ? B_OK : res;
 			}
 		}
 		return ENOSYS;
@@ -673,8 +699,8 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 		case DRM_IOCTL_SYNCOBJ_WAIT: {
 			auto args = (struct drm_syncobj_wait*)arg;
 			Syncobj::WaitFlags flags{
+				.absoluteTimeout = true,
 				.all = (DRM_SYNCOBJ_WAIT_FLAGS_WAIT_ALL & args->flags) != 0,
-				.domain = true,
 				.forSubmit = (DRM_SYNCOBJ_WAIT_FLAGS_WAIT_FOR_SUBMIT & args->flags) != 0,
 				.available = (DRM_SYNCOBJ_WAIT_FLAGS_WAIT_AVAILABLE & args->flags) != 0
 			};
@@ -685,14 +711,16 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 			}
 			ArrayDeleter<uint64> points(new uint64[args->count_handles]);
 			memset(points.Get(), 0, sizeof(uint64)*args->count_handles);
-			auto teamStateLocked = teamState.Switch();
-			return Syncobj::Wait((uint32*)&args->first_signaled, syncobjs.Get(), points.Get(), args->count_handles, flags, args->timeout_nsec/1000);
+			// blocks only this client thread's server thread, not the team's
+			// domain; the timeout is absolute (CLOCK_MONOTONIC, as
+			// system_time())
+			return SyncobjWaitResult(Syncobj::Wait((uint32*)&args->first_signaled, syncobjs.Get(), points.Get(), args->count_handles, flags, TimeoutUs(args->timeout_nsec)));
 		}
 		case DRM_IOCTL_SYNCOBJ_TIMELINE_WAIT: {
 			auto args = (struct drm_syncobj_timeline_wait*)arg;
 			Syncobj::WaitFlags flags{
+				.absoluteTimeout = true,
 				.all = (DRM_SYNCOBJ_WAIT_FLAGS_WAIT_ALL & args->flags) != 0,
-				.domain = true,
 				.forSubmit = (DRM_SYNCOBJ_WAIT_FLAGS_WAIT_FOR_SUBMIT & args->flags) != 0,
 				.available = (DRM_SYNCOBJ_WAIT_FLAGS_WAIT_AVAILABLE & args->flags) != 0
 			};
@@ -702,8 +730,10 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 			for (uint32 i = 0; i < args->count_handles; i++) {
 				syncobjs[i] = teamState.Switch()->ThisSyncobj(handles[i]);
 			}
-			auto teamStateLocked = teamState.Switch();
-			return Syncobj::Wait((uint32*)&args->first_signaled, syncobjs.Get(), points, args->count_handles, flags, args->timeout_nsec/1000);
+			// blocks only this client thread's server thread, not the team's
+			// domain; the timeout is absolute (CLOCK_MONOTONIC, as
+			// system_time())
+			return SyncobjWaitResult(Syncobj::Wait((uint32*)&args->first_signaled, syncobjs.Get(), points, args->count_handles, flags, TimeoutUs(args->timeout_nsec)));
 		}
 		case DRM_IOCTL_SYNCOBJ_TRANSFER: {
 			auto args = (struct drm_syncobj_transfer*)arg;

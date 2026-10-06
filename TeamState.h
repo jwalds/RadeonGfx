@@ -91,7 +91,7 @@ public:
 	void DumpSyncobjs();
 
 	status_t ScheduleCS(uint64 &handle, CommandSubmission *cs);
-	status_t WaitCS(uint64 handle);
+	status_t CsFence(uint64 handle, BReference<Fence> &fence);
 };
 
 class TeamRoster: public Object {

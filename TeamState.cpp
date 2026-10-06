@@ -312,17 +312,16 @@ status_t TeamState::ScheduleCS(uint64 &handle, CommandSubmission *cs)
 	return B_OK;
 }
 
-status_t TeamState::WaitCS(uint64 handle)
+// the fence of a submission, unset if it is done
+status_t TeamState::CsFence(uint64 handle, BReference<Fence> &fence)
 {
-	//printf("TeamState::WaitCS(%" B_PRIu64 ")\n", handle);
-
-	if ((int32)fCsSeq - (int32)handle >= 0) return B_OK;
+	fence.Unset();
+	if ((int32)fCsSeq - (int32)handle >= 0)
+		return B_OK;
 	auto it = fCmdSubs.find((uint32)handle);
-	if (it == fCmdSubs.end()) return B_ERROR;
-	CommandSubmission *cs = it->second;
-	if (auto ring = ExternalPtr<RadeonRingBuffer>(cs->fence->Ring()).Switch()) {
-		CheckRet(cs->fence->Wait());
-	}
+	if (it == fCmdSubs.end())
+		return B_ERROR;
+	fence = it->second->fence;
 	return B_OK;
 }
 
