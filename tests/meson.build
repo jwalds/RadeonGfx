@@ -5,7 +5,9 @@ unit_tests = executable('unit_tests',
 		'LocksTest.cpp',
 		'FenceTest.cpp',
 		'AllocatorTest.cpp',
+		'GpuContextsTest.cpp',
 		'../ExternalAllocator.cpp',
+		'../GpuContexts.cpp',
 		'../util/AVLTreeBase.cpp',
 	],
 	include_directories: [
@@ -25,7 +27,7 @@ unit_tests = executable('unit_tests',
 )
 
 foreach suite : ['Mutex', 'RecursiveLock', 'ConditionVariable', 'Fence',
-		'FenceGroup', 'ExternalAllocator']
+		'FenceGroup', 'ExternalAllocator', 'GpuContexts']
 	# the guarded heap turns a use-after-free into a crash
 	test(suite, unit_tests, args: [suite], timeout: 120,
 		env: ['TEST_TIMEOUT=60', 'MALLOC_DEBUG=g',

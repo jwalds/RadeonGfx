@@ -6,13 +6,23 @@
 #include "AccelerantDisplay.h"
 #include <Messenger.h>
 #include <AutoDeleterPosix.h>
+#include <AutoDeleterOS.h>
 #include <ClientThreadLink.h>
+#include <Locker.h>
+#include <map>
 
 
 class RadeonGfxAccelerant: public Accelerant, public AccelerantDrm, public AccelerantAmdgpu, public AccelerantDisplay {
 private:
 	FileDescriptorCloser fFd;
 	ClientThreadLinkConnection fConn;
+	// the server's GPU reset counter, and its value when each context was
+	// created: no reset since, no need to ask the server. Per process: the
+	// accelerant is opened several times, a context outlives its instance.
+	AreaDeleter fResetCounterArea;
+	const volatile int32 *fResetCounter = NULL;
+	static BLocker sContextLock;
+	static std::map<uint32, int32> sContextResetCounters;
 
 public:
 	RadeonGfxAccelerant(int fd);

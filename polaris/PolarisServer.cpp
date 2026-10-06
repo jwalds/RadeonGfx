@@ -2,6 +2,8 @@
 // the order of the bring-up tests (PolarisGfxTest), and keeps it running.
 
 #include "RadeonDevice.h"
+#include "GpuContexts.h"
+#include "RadeonServer.h"
 #include "RadeonMemory.h"
 #include "RadeonUnit.h"
 #include "Radeon.h"
@@ -194,6 +196,7 @@ RadeonDevice::InitPolarisServer(int fd)
 		printf("DPM:       off (RADEONGFX_DPM=0)\n");
 
 	FillGfxInfo(fInfo, fGpuInfo);
+	CheckRet(gGpuContexts.InitSharedCounter(RADEON_GFX_RESET_COUNTER_AREA));
 	printf("server:    Polaris ready\n");
 	return B_OK;
 }

@@ -19,6 +19,7 @@ extern "C" {
 #include <string.h>
 #include <syscalls.h>
 #include "polaris/PolarisDrmInfo.h"
+#include "GpuContexts.h"
 
 
 // an absolute DRM timeout in ns (CLOCK_MONOTONIC) in system_time() units
@@ -396,20 +397,35 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 			}
 			case DRM_AMDGPU_CTX: {
 				auto *request = (union drm_amdgpu_ctx*)arg;
+				team_id team = teamState.Switch()->Team();
 				switch (request->in.op) {
 					case AMDGPU_CTX_OP_ALLOC_CTX: {
-						static uint32_t newCtx = 1;
-						request->out.alloc.ctx_id = newCtx++;
+						request->out.alloc.ctx_id = gGpuContexts.Create(team);
 						return 0;
 					}
 					case AMDGPU_CTX_OP_FREE_CTX: {
-						return 0;
+						return gGpuContexts.Delete(team, request->in.ctx_id);
 					}
 					case AMDGPU_CTX_OP_QUERY_STATE: {
-						return ENOSYS;
+						bool reset, guilty;
+						CheckRet(gGpuContexts.Query(team, request->in.ctx_id,
+							reset, guilty));
+						memset(&request->out, 0, sizeof(request->out));
+						request->out.state.reset_status = guilty
+							? AMDGPU_CTX_GUILTY_RESET : reset
+								? AMDGPU_CTX_INNOCENT_RESET : AMDGPU_CTX_NO_RESET;
+						return 0;
 					}
 					case AMDGPU_CTX_OP_QUERY_STATE2: {
-						return ENOSYS;
+						bool reset, guilty;
+						CheckRet(gGpuContexts.Query(team, request->in.ctx_id,
+							reset, guilty));
+						memset(&request->out, 0, sizeof(request->out));
+						if (reset)
+							request->out.state.flags |= AMDGPU_CTX_QUERY2_FLAGS_RESET;
+						if (guilty)
+							request->out.state.flags |= AMDGPU_CTX_QUERY2_FLAGS_GUILTY;
+						return 0;
 					}
 				}
 				break;
@@ -499,8 +515,13 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 				//printf("DRM_AMDGPU_CS\n");
 				auto args = (union drm_amdgpu_cs*)arg;
 				auto chunks = (struct drm_amdgpu_cs_chunk**)args->in.chunks;
+				// as Linux: a context whose job hung the GPU can't submit
+				if (gGpuContexts.IsGuilty(teamState.Switch()->Team(),
+						args->in.ctx_id))
+					return ECANCELED;
 				ObjectDeleter cs(new CommandSubmission(teamState.Get()));
 				cs->ringId = RADEON_RING_TYPE_GFX_INDEX;
+				cs->contextId = args->in.ctx_id;
 
 				for (size_t i = 0; i < args->in.num_chunks; i++) {
 					switch (chunks[i]->chunk_id) {

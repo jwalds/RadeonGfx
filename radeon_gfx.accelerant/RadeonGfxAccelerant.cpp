@@ -1,6 +1,7 @@
 #include "RadeonGfxAccelerant.h"
 
 #include "../RadeonServer.h"
+#include <Autolock.h>
 #include <Messenger.h>
 #define _DEFAULT_SOURCE
 extern "C" {
@@ -24,11 +25,25 @@ extern "C" {
 } \
 
 
+BLocker RadeonGfxAccelerant::sContextLock("radeon_gfx contexts");
+std::map<uint32, int32> RadeonGfxAccelerant::sContextResetCounters;
+
+
 RadeonGfxAccelerant::RadeonGfxAccelerant(int fd)
 {
 	fFd.SetTo(dup(fd));
 	fcntl(fFd.Get(), F_SETFD, FD_CLOEXEC);
 	fConn.SetMessenger(BMessenger(RADEON_GFX_SERVER_SIGNATURE));
+
+	area_id area = find_area(RADEON_GFX_RESET_COUNTER_AREA);
+	if (area >= B_OK) {
+		void *address;
+		// not the server's name: find_area() must not find a client's clone
+		fResetCounterArea.SetTo(clone_area("radeon_gfx reset counter clone",
+			&address, B_ANY_ADDRESS, B_READ_AREA, area));
+		if (fResetCounterArea.IsSet())
+			fResetCounter = (const volatile int32*)address;
+	}
 }
 
 status_t RadeonGfxAccelerant::InitCheck()
@@ -608,25 +623,43 @@ int RadeonGfxAccelerant::AmdgpuWaitCs(uint32_t ctx_id, unsigned ip, unsigned ip_
 
 int RadeonGfxAccelerant::AmdgpuCtxRaw(union drm_amdgpu_ctx *args)
 {
-	switch (args->in.op) {
-		case AMDGPU_CTX_OP_ALLOC_CTX: {
-			static uint32_t newCtx = 1;
-			args->out.alloc.ctx_id = newCtx++;
-			return 0;
+	// the server keeps the contexts: a GPU reset marks them, and RADV asks
+	// with AMDGPU_CTX_OP_QUERY_STATE2 after every wait whether its device is
+	// lost; without a reset since the context's creation, that's known here
+	// args is a union: the reply overwrites the request
+	const uint32 op = args->in.op;
+	const uint32 contextId = args->in.ctx_id;
+	int32 resetCounter = fResetCounter != NULL ? *fResetCounter : -1;
+	if (fResetCounter != NULL && (op == AMDGPU_CTX_OP_QUERY_STATE
+			|| op == AMDGPU_CTX_OP_QUERY_STATE2)) {
+		BAutolock lock(sContextLock);
+		auto it = sContextResetCounters.find(contextId);
+		if (it != sContextResetCounters.end() && it->second == resetCounter) {
+			memset(&args->out, 0, sizeof(args->out));
+			return B_OK;
 		}
-		case AMDGPU_CTX_OP_FREE_CTX: {
-			return 0;
-		}
-		case AMDGPU_CTX_OP_QUERY_STATE: {
-			return 0;
-		}
-		case AMDGPU_CTX_OP_QUERY_STATE2: {
-			return 0;
-		}
-		default:
-			;
 	}
-	return EINVAL;
+
+	ThreadLinkHolder link(fConn);
+	link.StartMessage(radeonIoctlMsg);
+	link.Attach<int>(fFd.Get());
+	link.Attach<uint32_t>(DRM_COMMAND_BASE + DRM_AMDGPU_CTX);
+	link.Attach(&args->in, sizeof(args->in));
+	status_t reply;
+	link.FlushWithReply(reply);
+	link.Read(&args->out, sizeof(args->out));
+	CheckRet(reply);
+
+	if (fResetCounter != NULL) {
+		BAutolock lock(sContextLock);
+		if (op == AMDGPU_CTX_OP_ALLOC_CTX) {
+			// read before the allocation: a reset in between makes the next
+			// query ask the server
+			sContextResetCounters[args->out.alloc.ctx_id] = resetCounter;
+		} else if (op == AMDGPU_CTX_OP_FREE_CTX)
+			sContextResetCounters.erase(contextId);
+	}
+	return B_OK;
 }
 
 
