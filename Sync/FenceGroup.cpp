@@ -74,25 +74,25 @@ FenceGroup::FenceGroup(BReference<Fence> *fences, uint32 count, CreateFlags flag
 
 	fHandlers.SetTo(new GroupHandler[fCount]);
 
-	uint32 i = 0, j = 0;
+	uint32 j = 0;
 	for (uint32 i = 0; i < count; i++) {
 		FenceGroup *group = dynamic_cast<FenceGroup*>(fences[i].Get());
 		if (group != NULL && group->fFlags.all == fFlags.all) {
-			for (uint32 k = 0; k < group->fCount; k++) {
-				fHandlers[j].fGroup = this;
-				fHandlers[j].fFence = group->fHandlers[k].fFence;
-				fHandlers[j].fIdx = j;
-				fHandlers[j].fFence->OnSignal(&fHandlers[j]);
-				j++;
-			}
-		} else {
-			fHandlers[j].fGroup = this;
-			fHandlers[j].fFence = fences[i];
-			fHandlers[j].fIdx = j;
-			fHandlers[j].fFence->OnSignal(&fHandlers[j]);
-			j++;
-		}
+			for (uint32 k = 0; k < group->fCount; k++)
+				fHandlers[j++].fFence = group->fHandlers[k].fFence;
+		} else
+			fHandlers[j++].fFence = fences[i];
 	}
+
+	// Only register the handlers once they are all set up: OnSignal() of an
+	// already signaled fence runs the handler at once, which can signal the
+	// group and cancel all handlers.
+	for (j = 0; j < fCount; j++) {
+		fHandlers[j].fGroup = this;
+		fHandlers[j].fIdx = j;
+	}
+	for (j = 0; j < fCount && !IsSignaled(); j++)
+		fHandlers[j].fFence->OnSignal(&fHandlers[j]);
 }
 
 FenceGroup::~FenceGroup()
