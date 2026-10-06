@@ -5,6 +5,7 @@
 volatile bool gServerStopping = false;
 #include "RadeonDevice.h"
 #include <stdio.h>
+#include <string.h>
 #include <algorithm>
 
 
@@ -65,6 +66,38 @@ TeamState::~TeamState()
 {
 	printf("-TeamState(%" B_PRId32 ")\n", fTeam);
 	gGpuContexts.DeleteTeam(fTeam);
+	// what the client didn't unmap: kept alive until now
+	uint32 mappings;
+	uint64 mappedSize;
+	fAddressSpace->GetMappingStats(mappings, mappedSize);
+	// what the client didn't close
+	uint32 buffers = 0, syncobjs = 0;
+	uint64 bufferSize[3] = {};
+	for (auto &it : fHandles.Handles()) {
+		if (it.second.type == HandleType::syncobj) {
+			syncobjs++;
+			continue;
+		}
+		BufferObject *buffer = static_cast<BufferObject*>(it.second.ref.Get());
+		if (buffer == NULL)
+			continue;
+		buffers++;
+		if (buffer->domain >= boDomainVram && buffer->domain <= boDomainGtt)
+			bufferSize[buffer->domain] += buffer->size;
+	}
+	if (buffers > 0 || syncobjs > 0) {
+		printf("  left open: %" B_PRIu32 " buffers (VRAM %" B_PRIu64
+			" KB, visible VRAM %" B_PRIu64 " KB, GTT %" B_PRIu64 " KB), %"
+			B_PRIu32 " syncobjs\n", buffers, bufferSize[boDomainVram] >> 10,
+			bufferSize[boDomainVramMappable] >> 10, bufferSize[boDomainGtt] >> 10,
+			syncobjs);
+	}
+	if (mappings > 0 || fClosedWhileMapped > 0 || fFailedVaOps > 0) {
+		printf("  left mapped: %" B_PRIu32 " mappings, %" B_PRIu64 " KB; %"
+			B_PRIu32 " handles closed while mapped, %" B_PRIu32
+			" VA operations failed\n", mappings, mappedSize >> 10,
+			fClosedWhileMapped, fFailedVaOps);
+	}
 	// left over memory hints at leaks
 	if (auto memMgr = gDevice.MemMgr().Switch()) {
 		uint64 total, vram, vramMappable, gtt;
@@ -180,7 +213,23 @@ int32 TeamState::RegisterHandle(const Handle &handleObj)
 
 status_t TeamState::FreeHandle(int32 handle)
 {
+	Handle handleObj = fHandles.This(handle);
+	if (handleObj.type == HandleType::buffer && handleObj.ref.IsSet()
+		&& fAddressSpace->CountMappings(
+			static_cast<BufferObject*>(handleObj.ref.Get())) > 0) {
+		fClosedWhileMapped++;
+	}
 	return fHandles.Free(handle);
+}
+
+
+void TeamState::VaOpFailed(uint32 operation, uint64 address, status_t status)
+{
+	if (fFailedVaOps++ < 5) {
+		printf("[!] team %" B_PRId32 ": VA operation %" B_PRIu32 " at %#"
+			B_PRIx64 " failed: %s\n", fTeam, operation, address,
+			strerror(status));
+	}
 }
 
 TeamState::Handle TeamState::ThisHandle(int32 handle)

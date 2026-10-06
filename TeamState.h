@@ -66,6 +66,10 @@ private:
 	ExternalAllocator fVirtMemPool;
 	std::map<uint32, CommandSubmission* > fCmdSubs;
 	uint32 fCsSeq, fLastCsSeq;
+	// leak diagnostics: buffer handles closed while the buffer was still
+	// mapped, VA operations that failed
+	uint32 fClosedWhileMapped = 0;
+	uint32 fFailedVaOps = 0;
 
 	bool WaitForSubmissions();
 
@@ -86,6 +90,7 @@ public:
 	BReference<BufferObject> ThisBuffer(int32 handle);
 	status_t Map(uint64 virtAdr, int32 handle, uint64 offset, uint64 size, uint32 flags);
 	status_t Unmap(uint64 virtAdr, int32 handle, uint64 offset, uint64 size, uint32 flags);
+	void VaOpFailed(uint32 operation, uint64 address, status_t status);
 	status_t CpuMap(void *&adr, int32 handle, uint64 offset, uint64 size, uint32 flags);
 	status_t CpuUnmap(void *adr, int32 handle, uint64 offset, uint64 size, uint32 flags);
 

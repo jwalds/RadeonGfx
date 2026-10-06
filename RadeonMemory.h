@@ -114,6 +114,9 @@ public:
 	BReference<BufferObject> Lookup(uint64 mapAdr, uint64 &offset);
 	status_t Map(BReference<BufferObject> buffer, uint64 mapAdr, uint64 offset, uint64 size);
 	status_t Unmap(BReference<BufferObject> buffer, uint64 mapAdr, uint64 offset, uint64 size);
+	// the mappings left, and how many of them map the buffer
+	void GetMappingStats(uint32 &count, uint64 &size);
+	uint32 CountMappings(BufferObject *buffer);
 
 	int32 AcquireVmid();
 	void ReleaseVmid();

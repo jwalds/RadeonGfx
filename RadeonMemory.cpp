@@ -219,6 +219,24 @@ status_t AddressSpace::Map(BReference<BufferObject> buffer, uint64 mapAdr, uint6
 	return B_OK;
 }
 
+void AddressSpace::GetMappingStats(uint32 &count, uint64 &size)
+{
+	count = fMappings.size();
+	size = 0;
+	for (auto &it : fMappings)
+		size += it.second.size;
+}
+
+uint32 AddressSpace::CountMappings(BufferObject *buffer)
+{
+	uint32 count = 0;
+	for (auto &it : fMappings) {
+		if (it.second.buffer.Get() == buffer)
+			count++;
+	}
+	return count;
+}
+
 status_t AddressSpace::Unmap(BReference<BufferObject> buffer, uint64 mapAdr, uint64 offset, uint64 size)
 {
 	(void)buffer;

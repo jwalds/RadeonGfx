@@ -495,16 +495,22 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 			}
 			case DRM_AMDGPU_GEM_VA: {
 				auto *args = (struct drm_amdgpu_gem_va*)arg;
+				auto ts = teamState.Switch();
+				status_t status = ENOSYS;
 				switch (args->operation) {
-					case AMDGPU_VA_OP_MAP: {
-						return teamState.Switch()->Map(args->va_address, args->handle, args->offset_in_bo, args->map_size, 0);
-					}
+					case AMDGPU_VA_OP_MAP:
+						status = ts->Map(args->va_address, args->handle,
+							args->offset_in_bo, args->map_size, 0);
+						break;
 					case AMDGPU_VA_OP_UNMAP:
-					case AMDGPU_VA_OP_CLEAR: {
-						return teamState.Switch()->Unmap(args->va_address, args->handle, args->offset_in_bo, args->map_size, 0);
-					}
+					case AMDGPU_VA_OP_CLEAR:
+						status = ts->Unmap(args->va_address, args->handle,
+							args->offset_in_bo, args->map_size, 0);
+						break;
 				}
-				break;
+				if (status < B_OK)
+					ts->VaOpFailed(args->operation, args->va_address, status);
+				return status;
 			}
 			case DRM_AMDGPU_GEM_MMAP: {
 				auto *args = (union drm_amdgpu_gem_mmap*)arg;
