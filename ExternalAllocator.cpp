@@ -60,8 +60,15 @@ bool ExternalAllocator::AllocAligned(uint64_t &ptr, uint64_t size, uint64_t alig
 {
 	// the smallest free block that has room for an aligned block of size,
 	// not only blocks of size + align - 1
-	for (Block *block = fSizeMap.FindClosest(size, false); block != NULL;
-			block = fSizeMap.Next(block)) {
+	Block *first = fSizeMap.FindClosest(size, false);
+	// FindClosest() can return any of several blocks of the same size
+	while (first != NULL) {
+		Block *previous = fSizeMap.Previous(first);
+		if (previous == NULL || previous->fSize < size)
+			break;
+		first = previous;
+	}
+	for (Block *block = first; block != NULL; block = fSizeMap.Next(block)) {
 		uint64_t retPtr = RoundUp(block->fAdr, align);
 		if (retPtr + size <= block->fAdr + block->fSize) {
 			ptr = retPtr;
