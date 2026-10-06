@@ -40,11 +40,19 @@ void Fence::Signal()
 		BReferenceable *holder = NULL;
 		{
 			AutoLocker<RecursiveLock, AutoLockerLocksLocking<RecursiveLock>> lock(&fLock);
+			if (fRunningHandler != NULL) {
+				fRunningHandler = NULL;
+				fRunningThread = -1;
+				fRunningDone.Release(true);
+			}
 			handler = fHandlers.RemoveHead();
-			if (handler != NULL && !handler->Retain(holder))
+			if (handler == NULL)
+				return;
+			if (!handler->Retain(holder))
 				continue;
+			fRunningHandler = handler;
+			fRunningThread = find_thread(NULL);
 		}
-		if (handler == NULL) return;
 		handler->Do(this);
 		if (holder != NULL)
 			holder->ReleaseReference();
@@ -68,16 +76,19 @@ void Fence::OnSignal(Handler *handler)
 	handler->Do(this);
 }
 
-void Fence::OnSignalCancel(Handler *handler)
+void Fence::OnSignalCancel(Handler *handler, bool waitIfRunning)
 {
 	AutoLocker<RecursiveLock, AutoLockerLocksLocking<RecursiveLock>> lock(&fLock);
 	TRACE("Fence(%p).OnSignalCancel(%p)\n", this, handler);
-	auto link = handler->GetDoublyLinkedListLink();
-	if (!fHandlers.Contains(handler) /*fHandlers.First() != handler && link->next == NULL && link->previous == NULL*/) {
-		//TRACE("  not registered\n");
+	if (fHandlers.Contains(handler)) {
+		fHandlers.Remove(handler);
 		return;
 	}
-	fHandlers.Remove(handler);
+	// Signal() runs it in another thread: its owner may free it (and what
+	// it points to) once this returns
+	while (waitIfRunning && fRunningHandler == handler
+		&& fRunningThread != find_thread(NULL))
+		fRunningDone.Acquire(fLock);
 }
 
 status_t Fence::WaitNonDomain(uint32 flags, bigtime_t timeout)
@@ -87,7 +98,7 @@ status_t Fence::WaitNonDomain(uint32 flags, bigtime_t timeout)
 	HandlerTemplate handler([&](Fence *fence){mutex.Release();});
 	OnSignal(&handler);
 	status_t res = mutex.Acquire(flags, timeout);
-	OnSignalCancel(&handler);
+	OnSignalCancel(&handler, true);
 	return res;
 }
 
@@ -129,7 +140,7 @@ status_t Fence::WaitMultiple(uint32 *firstSignaled, BReference<Fence> *fences, u
 	status_t res = waitInfo.Wait();
 
 	for (uint32 i = 0; i < count; i++) {
-		fences[i]->OnSignalCancel(&handlers[i]);
+		fences[i]->OnSignalCancel(&handlers[i], true);
 	}
 
 	return res;
@@ -170,12 +181,21 @@ status_t WaitInfoBase::Wait()
 		return (remainingCount > 0) ? B_TIMED_OUT : B_OK;
 	}
 	if (flags.domain) {
+		// Resolved() schedules the request; TODO: timeout
 		lock.Unlock();
 		Domain::Wait();
-	} else {
-		while (remainingCount > 0) {
-			cond.Acquire(this->lock);
-		}
+		return B_OK;
+	}
+
+	bigtime_t deadline = timeout;
+	if (!flags.absoluteTimeout && timeout != B_INFINITE_TIMEOUT)
+		deadline = system_time() + timeout;
+	while (remainingCount > 0) {
+		status_t status = deadline == B_INFINITE_TIMEOUT
+			? cond.Acquire(this->lock)
+			: cond.Acquire(this->lock, B_ABSOLUTE_TIMEOUT, deadline);
+		if (status == B_TIMED_OUT && remainingCount > 0)
+			return B_TIMED_OUT;
 	}
 	return B_OK;
 }

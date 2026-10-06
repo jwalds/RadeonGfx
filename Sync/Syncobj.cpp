@@ -278,6 +278,8 @@ status_t Syncobj::WaitForSubmit(uint32 *firstSignaled, SyncobjRef *syncobjs, uin
 		void Do(Syncobj *syncobj, Fence *fence) override
 		{
 			(void)syncobj;
+			if (fence == NULL)
+				return;
 			fWaitInfo->fences[fIdx] = fence;
 			fence->OnSignal(&fFenceHandler);
 		}
@@ -294,12 +296,13 @@ status_t Syncobj::WaitForSubmit(uint32 *firstSignaled, SyncobjRef *syncobjs, uin
 
 	status_t res = waitInfo.base.Wait();
 
+	// the syncobj handler first: it can still register the fence handler
 	for (uint32 i = 0; i < count; i++) {
+		syncobjs[i]->OnAvailCancel(&handlers[i]);
 		auto fence = waitInfo.fences[i].Get();
 		if (fence != NULL) {
-			fence->OnSignalCancel(&handlers[i].fFenceHandler);
+			fence->OnSignalCancel(&handlers[i].fFenceHandler, true);
 		}
-		syncobjs[i]->OnAvailCancel(&handlers[i]);
 	}
 
 	return res;

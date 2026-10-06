@@ -57,6 +57,10 @@ public:
 
 private:
 	DoublyLinkedList<Handler> fHandlers;
+	// the handler Signal() runs outside the lock, for OnSignalCancel()
+	Handler *fRunningHandler = NULL;
+	thread_id fRunningThread = -1;
+	ConditionVariable fRunningDone;
 
 public:
 	Fence(uint64 seq = 0): fSeq(seq) {}
@@ -64,7 +68,11 @@ public:
 
 	void Signal();
 	void OnSignal(Handler *handler);
-	void OnSignalCancel(Handler *handler);
+	// With waitIfRunning, the handler isn't running anymore when this
+	// returns (unless called from the handler itself): for handlers on the
+	// waiter's stack. Not when the caller holds something the handler takes
+	// (a domain): that deadlocks.
+	void OnSignalCancel(Handler *handler, bool waitIfRunning = false);
 	status_t WaitNonDomain(uint32 flags = 0, bigtime_t timeout = B_INFINITE_TIMEOUT);
 	status_t Wait(uint32 flags = 0, bigtime_t timeout = B_INFINITE_TIMEOUT);
 	static status_t WaitMultiple(uint32 *firstSignaled, BReference<Fence> *fences, uint32 count, WaitFlags flags = {}, bigtime_t timeout = B_INFINITE_TIMEOUT);

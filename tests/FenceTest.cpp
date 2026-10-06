@@ -207,6 +207,82 @@ TEST(Fence, OnSignalLockOrder)
 }
 
 
+TEST(Fence, WaitMultipleTimeout)
+{
+	BReference<Fence> fences[2] = {NewFence(), NewFence()};
+	uint32 first;
+	bigtime_t start = system_time();
+	CHECK_EQ(Fence::WaitMultiple(&first, fences, 2, {}, 50000), B_TIMED_OUT);
+	bigtime_t elapsed = system_time() - start;
+	CHECK(elapsed >= 50000 && elapsed < 1000000);
+
+	start = system_time();
+	CHECK_EQ(Fence::WaitMultiple(NULL, fences, 2,
+		{.absoluteTimeout = true, .all = true}, system_time() + 50000),
+		B_TIMED_OUT);
+	elapsed = system_time() - start;
+	CHECK(elapsed >= 50000 && elapsed < 1000000);
+
+	// a deadline in the past polls
+	CHECK_EQ(Fence::WaitMultiple(&first, fences, 2, {.absoluteTimeout = true},
+		0), B_TIMED_OUT);
+	fences[1]->Signal();
+	CHECK_EQ(Fence::WaitMultiple(&first, fences, 2, {.absoluteTimeout = true},
+		0), B_OK);
+	CHECK_EQ(first, 1);
+
+	// signaled before the deadline
+	std::thread signaler([&] {
+		snooze(20000);
+		fences[0]->Signal();
+	});
+	CHECK_EQ(Fence::WaitMultiple(NULL, fences, 2,
+		{.absoluteTimeout = true, .all = true}, system_time() + 2000000),
+		B_OK);
+	signaler.join();
+}
+
+
+class BlockingHandler: public Fence::Handler {
+public:
+	std::atomic<bool> started{false};
+	std::atomic<bool> proceed{false};
+	std::atomic<bool> finished{false};
+
+	void Do(Fence *fence) override
+	{
+		(void)fence;
+		started = true;
+		while (!proceed)
+			snooze(100);
+		finished = true;
+	}
+};
+
+
+// After OnSignalCancel(handler, true) returns, the handler isn't running in another
+// thread anymore: a waiter that timed out can free it (and its wait info).
+TEST(Fence, CancelWaitsForRunningHandler)
+{
+	BReference<Fence> fence = NewFence();
+	BlockingHandler handler;
+	fence->OnSignal(&handler);
+	std::thread signaler([&] {
+		fence->Signal();
+	});
+	while (!handler.started)
+		snooze(100);
+	std::thread releaser([&] {
+		snooze(20000);
+		handler.proceed = true;
+	});
+	fence->OnSignalCancel(&handler, true);
+	CHECK(handler.finished);
+	signaler.join();
+	releaser.join();
+}
+
+
 TEST(FenceGroup, All)
 {
 	BReference<Fence> fences[3] = {NewFence(), NewFence(), NewFence()};
