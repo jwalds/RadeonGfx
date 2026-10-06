@@ -47,6 +47,7 @@ endif
 subdir('Sync')
 subdir('firmware')
 subdir('radeon_gfx.accelerant')
+subdir('tests')
 
 executable('RadeonGfx',
 	[
