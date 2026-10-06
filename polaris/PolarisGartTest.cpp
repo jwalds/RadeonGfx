@@ -66,7 +66,7 @@ CheckMapping(MemoryManager &memMgr, BReference<BufferObject> buffer)
 			+ offset) / B_PAGE_SIZE];
 		uint64 expected = (physical & ~(uint64)(B_PAGE_SIZE - 1))
 			| R600_PTE_VALID | R600_PTE_SYSTEM | R600_PTE_SNOOPED
-			| R600_PTE_READABLE | R600_PTE_WRITEABLE;
+			| R600_PTE_EXECUTABLE | R600_PTE_READABLE | R600_PTE_WRITEABLE;
 		if (offset == 0) {
 			printf("  first page: GPU %#" B_PRIx64 " -> physical %#" B_PRIx64
 				", PTE %#018" B_PRIx64 "\n", buffer->gpuPhysAdr, physical,
