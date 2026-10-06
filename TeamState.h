@@ -12,6 +12,9 @@
 
 class TeamState;
 
+// set on SIGINT/SIGTERM: the server is stopping and halts the GPU anyway
+extern volatile bool gServerStopping;
+
 
 class RadeonServerThreadLink final: public ServerThreadLink {
 private:

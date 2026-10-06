@@ -46,6 +46,10 @@ public:
 	status_t SelfTest();
 	void PrintState() {fGfx.PrintState();}
 	void PrintVmFaults() {fGfx.PrintVmFaults();}
+
+	void PrintHangState() override;
+	bool SoftRecover(int32 vmId, uint32 seq) override;
+	status_t ResetHardware() override;
 };
 
 
@@ -177,6 +181,54 @@ RadeonRingBufferGfxV8::SelfTest()
 	*fFenceAdr = fenceBefore;
 	gDevice.MemMgr().Switch()->FreeWriteback(scratchGpu);
 	return ok ? B_OK : B_ERROR;
+}
+
+
+void
+RadeonRingBufferGfxV8::PrintHangState()
+{
+	printf("[!] GFX: ring rptr %#" B_PRIx32 " wptr %#" B_PRIx32 ", fence %"
+		B_PRIu32 " of %" B_PRIu32 "\n", Rptr() / 4, Wptr() / 4, Rseq(),
+		Wseq());
+	fGfx.PrintState();
+	fGfx.PrintVmFaults();
+}
+
+
+bool
+RadeonRingBufferGfxV8::SoftRecover(int32 vmId, uint32 seq)
+{
+	// amdgpu_ring_soft_recovery(): kill the VMID's waves for up to 10 ms
+	// until the fence passes; helps a shader that doesn't end, not a
+	// command processor that waits
+	if (vmId < 0)
+		return false;
+	bigtime_t deadline = system_time() + 10000;
+	while ((int32)Rseq() - (int32)seq < 0 && system_time() < deadline) {
+		fGfx.KillWaves(vmId);
+		snooze(100);
+	}
+	return (int32)Rseq() - (int32)seq >= 0;
+}
+
+
+status_t
+RadeonRingBufferGfxV8::ResetHardware()
+{
+	// amdgpu_device_gpu_recover() for the GFX block: what was on the ring is
+	// dropped (RADV reports the device lost to every context anyway)
+	fGfx.EnableEopInterrupt(false);
+	CheckRet(fGfx.InitHardware(fBuffer.buf->gpuPhysAdr, fSize, fRptrGpuAdr,
+		true));
+	ResetPointers();
+	for (uint32 i = 0; i < fSize; i++)
+		((uint32*)fBuffer.adr)[i] = NopPacket();
+	CheckRet(Begin(1024));
+	GenClearState(*this);
+	End();
+	CheckRet(SelfTest());
+	fGfx.EnableEopInterrupt(true);
+	return B_OK;
 }
 
 

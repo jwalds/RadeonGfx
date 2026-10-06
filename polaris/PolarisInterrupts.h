@@ -20,7 +20,10 @@ protected:
 	status_t WaitForInterrupt() override;
 
 private:
+	void CheckGfxHang(bigtime_t now);
+
 	PolarisIhRing fIh;
 	bigtime_t fLastFenceCheck = 0;
 	uint32 fMissedInterrupts = 0;
+	bigtime_t fLastHangCheck = 0;
 };

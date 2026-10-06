@@ -132,6 +132,9 @@ void CommandSubmission::WaitHandler::Do(Fence *fence)
 		if (cs->userFence.buffer.IsSet()) {
 			ring->WriteUserFence(cs->userFence.buffer->gpuPhysAdr + cs->userFence.offset, cs->seq);
 		}
+		cs->fence->team = ts->Team();
+		cs->fence->context = cs->contextId;
+		cs->fence->vmId = vmId;
 		ring->WriteFence(cs->fence);
 		ring->End();
 	}

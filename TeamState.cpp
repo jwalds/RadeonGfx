@@ -1,6 +1,11 @@
 #include "TeamState.h"
+#include "GpuContexts.h"
+
+
+volatile bool gServerStopping = false;
 #include "RadeonDevice.h"
 #include <stdio.h>
+#include <algorithm>
 
 
 ExternalPtr<TeamRoster> gTeamRoster = MakeExternal<TeamRoster>();
@@ -59,6 +64,7 @@ TeamState::TeamState(team_id team):
 TeamState::~TeamState()
 {
 	printf("-TeamState(%" B_PRId32 ")\n", fTeam);
+	gGpuContexts.DeleteTeam(fTeam);
 	// left over memory hints at leaks
 	if (auto memMgr = gDevice.MemMgr().Switch()) {
 		uint64 total, vram, vramMappable, gtt;
@@ -97,8 +103,9 @@ void TeamState::LastReferenceReleased()
 /*!	A killed client's submissions can still be on the GPU, and their fence
 	handlers retire them in this team's domain: the team's buffers, page
 	tables and domain must stay until they are done. Not in the team's
-	domain. Returns false if the GPU didn't finish them; the state is kept
-	then (a leak instead of the GPU writing to freed memory).
+	domain. Waits until a hang reset would have completed them; returns
+	false if they still aren't: the state is kept then (a leak instead of
+	the GPU writing to freed memory).
 */
 bool TeamState::WaitForSubmissions()
 {
@@ -107,8 +114,9 @@ bool TeamState::WaitForSubmissions()
 			"for its submissions\n", fTeam);
 		return true;
 	}
+	// a hung GPU is reset after the lockup timeout, which completes them
 	bigtime_t start = system_time();
-	bigtime_t deadline = start + 5000000;
+	bigtime_t deadline = start + gLockupTimeout + 5000000;
 	for (bool first = true;; first = false) {
 		BReference<Fence> fence;
 		size_t count;
@@ -128,15 +136,27 @@ bool TeamState::WaitForSubmissions()
 			}
 			fence = fCmdSubs.rbegin()->second->fence;
 		}
-		if (fence->WaitNonDomain(B_ABSOLUTE_TIMEOUT, deadline) < B_OK) {
+		// in slices: a stopping server halts the GPU and doesn't wait
+		status_t status;
+		do {
+			status = fence->WaitNonDomain(B_ABSOLUTE_TIMEOUT,
+				std::min(deadline, system_time() + 100000));
+		} while (status == B_TIMED_OUT && system_time() < deadline
+			&& !gServerStopping);
+		if (status < B_OK && gServerStopping) {
+			printf("team %" B_PRId32 ": server stopping, %" B_PRIuSIZE
+				" submission(s) not done\n", fTeam, count);
+			return false;
+		}
+		if (status < B_OK) {
 			printf("[!] team %" B_PRId32 ": %" B_PRIuSIZE " submission(s) not "
-				"done after 5 s, keeping its memory\n", fTeam, count);
+				"done, keeping its memory\n", fTeam, count);
 			return false;
 		}
 		// the fence handler retires the submission in the team's domain
 		if (system_time() > deadline) {
 			printf("[!] team %" B_PRId32 ": %" B_PRIuSIZE " submission(s) not "
-				"retired after 5 s, keeping its memory\n", fTeam, count);
+				"retired, keeping its memory\n", fTeam, count);
 			return false;
 		}
 	}

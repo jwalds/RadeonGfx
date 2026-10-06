@@ -264,14 +264,16 @@ PolarisGfx::Init()
 
 status_t
 PolarisGfx::InitHardware(uint64 ringAddress, uint32 ringDwords,
-	uint64 rptrAddress)
+	uint64 rptrAddress, bool reset)
 {
 	if (!gDevice.RegsWritable())
 		return B_NOT_ALLOWED;
 
-	for (uint32 i = 0; i < B_COUNT_OF(kSavedRegisters); i++)
-		sSavedValues[i] = ReadReg4AmdGpu(kSavedRegisters[i]);
-	fRegistersSaved = true;
+	if (!fRegistersSaved) {
+		for (uint32 i = 0; i < B_COUNT_OF(kSavedRegisters); i++)
+			sSavedValues[i] = ReadReg4AmdGpu(kSavedRegisters[i]);
+		fRegistersSaved = true;
+	}
 
 	// gfx_v8_0_enable_gui_idle_interrupt(false), and the EOP interrupt off:
 	// a CP interrupt the IH doesn't take (ring disabled) stays pending and
@@ -291,12 +293,12 @@ PolarisGfx::InitHardware(uint64 ringAddress, uint32 ringDwords,
 		| GRBM_STATUS__SPI_BUSY_MASK | GRBM_STATUS__IA_BUSY_MASK
 		| GRBM_STATUS__IA_BUSY_NO_DMA_MASK | GRBM_STATUS__CP_BUSY_MASK
 		| GRBM_STATUS__CP_COHERENCY_BUSY_MASK;
-	if ((grbmStatus & kBusyMask) != 0
+	if (reset || (grbmStatus & kBusyMask) != 0
 		|| (grbmStatus2 & (GRBM_STATUS2__CPF_BUSY_MASK
 			| GRBM_STATUS2__CPC_BUSY_MASK | GRBM_STATUS2__CPG_BUSY_MASK)) != 0) {
-		printf("GFX:       busy from an earlier run (GRBM_STATUS %#010" B_PRIx32
-			", GRBM_STATUS2 %#010" B_PRIx32 "): soft reset\n", grbmStatus,
-			grbmStatus2);
+		printf("GFX:       %s (GRBM_STATUS %#010" B_PRIx32 ", GRBM_STATUS2 %#010"
+			B_PRIx32 "): soft reset\n", reset ? "hung"
+				: "busy from an earlier run", grbmStatus, grbmStatus2);
 		uint32 rlcCntl = ReadReg4AmdGpu(mmRLC_CNTL);
 		WriteReg4AmdGpu(mmRLC_CNTL, SET_FIELD(rlcCntl, RLC_CNTL, RLC_ENABLE_F32,
 			0));
@@ -535,6 +537,17 @@ PolarisGfx::PrintVmFaults()
 		ReadReg4AmdGpu(mmVM_CONTEXT1_CNTL));
 	printf("  CP_RB_VMID %#" B_PRIx32 ", VM_L2_STATUS %#" B_PRIx32 "\n",
 		ReadReg4AmdGpu(mmCP_RB_VMID), ReadReg4AmdGpu(mmVM_L2_STATUS));
+}
+
+
+void
+PolarisGfx::KillWaves(uint32 vmId)
+{
+	uint32 value = SET_FIELD(0, SQ_CMD, CMD, 0x03);
+	value = SET_FIELD(value, SQ_CMD, MODE, 0x01);
+	value = SET_FIELD(value, SQ_CMD, CHECK_VMID, 1);
+	value = SET_FIELD(value, SQ_CMD, VM_ID, vmId);
+	WriteReg4AmdGpu(mmSQ_CMD, value);
 }
 
 

@@ -11,6 +11,7 @@
 #include <private/shared/AutoDeleterPosix.h>
 
 #include "RadeonDevice.h"
+#include "TeamState.h"
 #include "RadeonServer.h"
 #include "PolarisInfo.h"
 #include "PolarisMemTest.h"
@@ -94,8 +95,14 @@ int main(int argc, char** argv)
 		RadeonInitServer();
 		// stop the GPU cleanly on ^C or kill: the engines must not keep
 		// writing into memory of a dead team
-		signal(SIGINT, [](int) {be_app->PostMessage(B_QUIT_REQUESTED);});
-		signal(SIGTERM, [](int) {be_app->PostMessage(B_QUIT_REQUESTED);});
+		signal(SIGINT, [](int) {
+			gServerStopping = true;
+			be_app->PostMessage(B_QUIT_REQUESTED);
+		});
+		signal(SIGTERM, [](int) {
+			gServerStopping = true;
+			be_app->PostMessage(B_QUIT_REQUESTED);
+		});
 		// a crashing server must not leave the GPU writing to freed memory
 		for (int crashSignal : {SIGABRT, SIGSEGV, SIGBUS, SIGILL, SIGFPE}) {
 			signal(crashSignal, [](int number) {

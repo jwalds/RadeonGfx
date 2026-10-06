@@ -152,6 +152,53 @@ bool RadeonRingBuffer::HasPassedFences()
 }
 
 
+bool RadeonRingBuffer::CheckHang(bigtime_t now, bigtime_t timeout,
+	HangInfo &info)
+{
+	RingFence *first = fFences.First();
+	uint32 rseq = Rseq();
+	if (first == NULL || (int32)rseq - (int32)first->Seq() >= 0) {
+		// idle, or the fence passed and only waits for UpdateFences()
+		fHangCheckBusy = false;
+		return false;
+	}
+	if (!fHangCheckBusy || rseq != fHangCheckSeq) {
+		fHangCheckBusy = true;
+		fHangCheckSeq = rseq;
+		fLastProgress = now;
+		return false;
+	}
+	if (now - fLastProgress < timeout)
+		return false;
+	info = HangInfo{
+		.seq = first->Seq(),
+		.team = first->team,
+		.context = first->context,
+		.vmId = first->vmId,
+		.stalled = now - fLastProgress
+	};
+	return true;
+}
+
+
+void RadeonRingBuffer::CompleteFences()
+{
+	*fFenceAdr = fWseq;
+	fHangCheckBusy = false;
+	UpdateFences();
+}
+
+
+void RadeonRingBuffer::ResetPointers()
+{
+	fRptr = 0;
+	fWptr = 0;
+	fWptrBeg = 0;
+	*fRptrAdr = 0;
+	fHangCheckBusy = false;
+}
+
+
 void RadeonRingBuffer::WriteUserFence(uint64 adr, uint64 seq)
 {
 	(void)adr;

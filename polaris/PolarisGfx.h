@@ -12,9 +12,12 @@ public:
 
 	// test mode: own ring in VRAM, clear state emitted
 	status_t Init();
-	// server mode: the caller owns the ring and emits the clear state
+	// server mode: the caller owns the ring and emits the clear state;
+	// reset: after a hang (the registers saved at the first call stay)
 	status_t InitHardware(uint64 ringAddress, uint32 ringDwords,
-		uint64 rptrAddress);
+		uint64 rptrAddress, bool reset = false);
+	// gfx_v8_0_ring_soft_recovery(): kills the waves of a VMID
+	void KillWaves(uint32 vmId);
 	void Fini();
 
 	status_t Begin(uint32 dwords);

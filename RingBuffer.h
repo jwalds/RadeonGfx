@@ -32,6 +32,12 @@ private:
 	RadeonRingBuffer *ring;
 
 public:
+	// the submission's owner, for a hang: whose context is guilty and which
+	// VMID's waves soft recovery kills
+	team_id team = -1;
+	uint32 context = 0;
+	int32 vmId = -1;
+
 	RingFence();
 	virtual ~RingFence();
 
@@ -47,6 +53,11 @@ private:
 	uint32 fRptr, fWptrBeg;
 
 	DoublyLinkedList<RingFence> fFences;
+
+	// CheckHang(): the last fence the GPU reached, and when it moved
+	bool fHangCheckBusy = false;
+	uint32 fHangCheckSeq = 0;
+	bigtime_t fLastProgress = 0;
 
 protected:
 	friend class RingFence;
@@ -100,6 +111,30 @@ public:
 	bool HasPassedFences();
 
 	void WriteState();
+
+	// GPU hang handling, as Linux' drm_sched job timeout and amdgpu recovery
+	struct HangInfo {
+		uint32 seq;			// the fence the GPU doesn't reach
+		team_id team;
+		uint32 context;
+		int32 vmId;
+		bigtime_t stalled;
+	};
+	// true if fences are pending and none passed for the timeout
+	bool CheckHang(bigtime_t now, bigtime_t timeout, HangInfo &info);
+	virtual void PrintHangState() {}
+	// amdgpu_ring_soft_recovery(): kills the waves of the VMID; true if the
+	// fence passed then
+	virtual bool SoftRecover(int32 vmId, uint32 seq)
+		{(void)vmId; (void)seq; return false;}
+	// resets the engine and restarts the ring empty
+	virtual status_t ResetHardware() {return B_NOT_SUPPORTED;}
+	// after a reset: the fences of everything that was on the ring are done
+	void CompleteFences();
+
+protected:
+	// an empty ring after an engine reset
+	void ResetPointers();
 };
 
 

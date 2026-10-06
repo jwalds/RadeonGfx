@@ -47,6 +47,7 @@ struct CommandSubmission {
 
 	// filled by client
 	int32 ringId;
+	uint32 contextId = 0;
 	uint32 bufferCnt = 0, indBufCnt = 0;
 	uint32 waitCnt = 0, signalCnt = 0;
 	ArrayDeleter<BReference<BufferObject>> buffers;
