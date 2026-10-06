@@ -64,6 +64,8 @@ private:
 	std::map<uint32, CommandSubmission* > fCmdSubs;
 	uint32 fCsSeq, fLastCsSeq;
 
+	bool WaitForSubmissions();
+
 public:
 	TeamState(team_id team);
 	virtual ~TeamState();

@@ -88,7 +88,57 @@ void TeamState::LastReferenceReleased()
 
 	oldFlags.val = atomic_and((int32*)&fFlags.val, ~Flags{.reacquired = true}.val);
 	if (!oldFlags.reacquired) {
+		if (!WaitForSubmissions())
+			return;
 		RefObject::LastReferenceReleased();
+	}
+}
+
+/*!	A killed client's submissions can still be on the GPU, and their fence
+	handlers retire them in this team's domain: the team's buffers, page
+	tables and domain must stay until they are done. Not in the team's
+	domain. Returns false if the GPU didn't finish them; the state is kept
+	then (a leak instead of the GPU writing to freed memory).
+*/
+bool TeamState::WaitForSubmissions()
+{
+	if (CurrentDomain() == GetDomain()) {
+		printf("[!] team %" B_PRId32 ": released in its own domain, can't wait "
+			"for its submissions\n", fTeam);
+		return true;
+	}
+	bigtime_t start = system_time();
+	bigtime_t deadline = start + 5000000;
+	for (bool first = true;; first = false) {
+		BReference<Fence> fence;
+		size_t count;
+		{
+			auto teamState = ExternalPtr<TeamState>(this).Switch();
+			if (fCmdSubs.empty()) {
+				if (!first) {
+					printf("team %" B_PRId32 ": submissions done after %"
+						B_PRId64 " us\n", fTeam, system_time() - start);
+				}
+				return true;
+			}
+			count = fCmdSubs.size();
+			if (first) {
+				printf("team %" B_PRId32 ": waiting for %" B_PRIuSIZE
+					" submission(s)\n", fTeam, count);
+			}
+			fence = fCmdSubs.rbegin()->second->fence;
+		}
+		if (fence->WaitNonDomain(B_ABSOLUTE_TIMEOUT, deadline) < B_OK) {
+			printf("[!] team %" B_PRId32 ": %" B_PRIuSIZE " submission(s) not "
+				"done after 5 s, keeping its memory\n", fTeam, count);
+			return false;
+		}
+		// the fence handler retires the submission in the team's domain
+		if (system_time() > deadline) {
+			printf("[!] team %" B_PRId32 ": %" B_PRIuSIZE " submission(s) not "
+				"retired after 5 s, keeping its memory\n", fTeam, count);
+			return false;
+		}
 	}
 }
 
