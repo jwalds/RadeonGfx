@@ -261,6 +261,9 @@ int RadeonGfxAccelerant::DrmSyncobjWait(uint32_t *handles, unsigned num_handles,
 	status_t reply;
 	link.FlushWithReply(reply);
 	link.Read(first_signaled);
+	// a timeout is a result (clients poll), not an error to report
+	if (reply == ETIME)
+		return reply;
 	CheckRet(reply);
 	return B_OK;
 }
@@ -312,6 +315,9 @@ int RadeonGfxAccelerant::DrmSyncobjTimelineWait(uint32_t *handles, uint64_t *poi
 	status_t reply;
 	link.FlushWithReply(reply);
 	link.Read(first_signaled);
+	// a timeout is a result (clients poll), not an error to report
+	if (reply == ETIME)
+		return reply;
 	CheckRet(reply);
 	return B_OK;
 }
