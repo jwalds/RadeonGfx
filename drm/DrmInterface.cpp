@@ -521,9 +521,12 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 				//printf("DRM_AMDGPU_CS\n");
 				auto args = (union drm_amdgpu_cs*)arg;
 				auto chunks = (struct drm_amdgpu_cs_chunk**)args->in.chunks;
+				bigtime_t parseStart = CsStatsEnabled() ? system_time() : 0;
+				// one switch into the team's domain for all of it: one per
+				// buffer lookup cost 3-4 us each
+				auto ts = teamState.Switch();
 				// as Linux: a context whose job hung the GPU can't submit
-				if (gGpuContexts.IsGuilty(teamState.Switch()->Team(),
-						args->in.ctx_id))
+				if (gGpuContexts.IsGuilty(ts->Team(), args->in.ctx_id))
 					return ECANCELED;
 				ObjectDeleter cs(new CommandSubmission(teamState.Get()));
 				cs->ringId = RADEON_RING_TYPE_GFX_INDEX;
@@ -581,7 +584,7 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 						case AMDGPU_CHUNK_ID_FENCE: {
 							auto fence = (struct drm_amdgpu_cs_chunk_fence*)chunks[i]->chunk_data;
 							//printf("  AMDGPU_CHUNK_ID_FENCE: (handle: %" B_PRIu32 ", offset: %#" B_PRIx64 ")\n", fence->handle, fence->offset);
-							cs->userFence.buffer = teamState.Switch()->ThisBuffer(fence->handle);
+							cs->userFence.buffer = ts->ThisBuffer(fence->handle);
 							if (!cs->userFence.buffer.IsSet()) {
 								printf("[!] CS: fence buffer %" B_PRIu32 " unknown\n", fence->handle);
 								return ENOENT;
@@ -593,7 +596,7 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 							auto syncobj = (struct drm_amdgpu_cs_chunk_syncobj*)chunks[i]->chunk_data;
 							for (size_t j = 0; j < chunks[i]->length_dw; j += sizeof(struct drm_amdgpu_cs_chunk_syncobj) / 4) {
 								//printf("  waitSyncobjs[%" B_PRIu32 "]: (%" B_PRIu32 ", %" B_PRIu64 ")\n", waitIdx, syncobj->handle, syncobj->point);
-								cs->waitSyncobjs[waitIdx] = teamState.Switch()->ThisSyncobj(syncobj->handle);
+								cs->waitSyncobjs[waitIdx] = ts->ThisSyncobj(syncobj->handle);
 								if (!cs->waitSyncobjs[waitIdx].IsSet()) {
 									printf("[!] CS: wait syncobj %" B_PRIu32 " unknown\n", syncobj->handle);
 									return ENOENT;
@@ -608,7 +611,7 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 							auto syncobj = (struct drm_amdgpu_cs_chunk_syncobj*)chunks[i]->chunk_data;
 							for (size_t j = 0; j < chunks[i]->length_dw; j += sizeof(struct drm_amdgpu_cs_chunk_syncobj) / 4) {
 								//printf("  signalSyncobjs[%" B_PRIu32 "]: (%" B_PRIu32 ", %" B_PRIu64 ")\n", signalIdx, syncobj->handle, syncobj->point);
-								cs->signalSyncobjs[signalIdx] = teamState.Switch()->ThisSyncobj(syncobj->handle);
+								cs->signalSyncobjs[signalIdx] = ts->ThisSyncobj(syncobj->handle);
 								if (!cs->signalSyncobjs[signalIdx].IsSet()) {
 									printf("[!] CS: signal syncobj %" B_PRIu32 " unknown\n", syncobj->handle);
 									return ENOENT;
@@ -625,7 +628,7 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 							cs->buffers.SetTo(new BReference<BufferObject>[boList->bo_number]);
 							for (size_t j = 0; j < boList->bo_number; j++) {
 								uint32 bufHandle = *(int32_t*)((char*)boList->bo_info_ptr + j*boList->bo_info_size);
-								cs->buffers[j] = teamState.Switch()->ThisBuffer(bufHandle);
+								cs->buffers[j] = ts->ThisBuffer(bufHandle);
 								if (!cs->buffers[j].IsSet()) {
 									printf("[!] CS: buffer %" B_PRIu32 " (%" B_PRIu32 " of %" B_PRIu32 ") unknown\n",
 										bufHandle, (uint32)j, (uint32)boList->bo_number);
@@ -636,7 +639,11 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 						}
 					}
 				}
-				return teamState.Switch()->ScheduleCS(args->out.handle, cs.Detach());
+				if (parseStart != 0) {
+					CsStatsAdd(kCsStageParse, system_time() - parseStart);
+					CsStatsAdd(kCsStageBuffers, cs->bufferCnt);
+				}
+				return ts->ScheduleCS(args->out.handle, cs.Detach());
 			}
 			case DRM_AMDGPU_WAIT_CS: {
 				auto *args = (union drm_amdgpu_wait_cs*)arg;
@@ -733,8 +740,11 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 			};
 			uint32_t *handles = (uint32_t*)args->handles;
 			ArrayDeleter<SyncobjRef> syncobjs(new SyncobjRef[args->count_handles]);
-			for (uint32 i = 0; i < args->count_handles; i++) {
-				syncobjs[i] = teamState.Switch()->ThisSyncobj(handles[i]);
+			{
+				// one switch for all lookups, released before waiting
+				auto ts = teamState.Switch();
+				for (uint32 i = 0; i < args->count_handles; i++)
+					syncobjs[i] = ts->ThisSyncobj(handles[i]);
 			}
 			ArrayDeleter<uint64> points(new uint64[args->count_handles]);
 			memset(points.Get(), 0, sizeof(uint64)*args->count_handles);
@@ -754,8 +764,11 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 			uint32_t *handles = (uint32_t*)args->handles;
 			uint64_t *points = (uint64_t*)args->points;
 			ArrayDeleter<SyncobjRef> syncobjs(new SyncobjRef[args->count_handles]);
-			for (uint32 i = 0; i < args->count_handles; i++) {
-				syncobjs[i] = teamState.Switch()->ThisSyncobj(handles[i]);
+			{
+				// one switch for all lookups, released before waiting
+				auto ts = teamState.Switch();
+				for (uint32 i = 0; i < args->count_handles; i++)
+					syncobjs[i] = ts->ThisSyncobj(handles[i]);
 			}
 			// blocks only this client thread's server thread, not the team's
 			// domain; the timeout is absolute (CLOCK_MONOTONIC, as
@@ -770,11 +783,11 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 				.forSubmit = (DRM_SYNCOBJ_WAIT_FLAGS_WAIT_FOR_SUBMIT & args->flags) != 0,
 				.available = (DRM_SYNCOBJ_WAIT_FLAGS_WAIT_AVAILABLE & args->flags) != 0
 			};
-			SyncobjRef dstSyncobj = teamState.Switch()->ThisSyncobj(args->dst_handle);
+			auto ts = teamState.Switch();
+			SyncobjRef dstSyncobj = ts->ThisSyncobj(args->dst_handle);
 			if (!dstSyncobj.IsSet()) return B_BAD_VALUE;
-			SyncobjRef srcSyncobj = teamState.Switch()->ThisSyncobj(args->src_handle);
+			SyncobjRef srcSyncobj = ts->ThisSyncobj(args->src_handle);
 			if (!srcSyncobj.IsSet()) return B_BAD_VALUE;
-			auto teamStateLocked = teamState.Switch();
 			return dstSyncobj->Transfer(args->dst_point, srcSyncobj, args->src_point, flags);
 		}
 		case DRM_IOCTL_SYNCOBJ_RESET: {

@@ -4,7 +4,44 @@
 #include "FenceGroup.h"
 #include "bif_3_0_d.h"
 #include <stdio.h>
+#include <OS.h>
 #include <stdlib.h>
+
+
+static struct CsStats {
+	bool enabled = getenv("RADEONGFX_STATS") != NULL;
+	int64 count[kCsStageCount] = {};
+	bigtime_t time[kCsStageCount] = {};
+
+	~CsStats()
+	{
+		if (!enabled || count[kCsStageParse] == 0)
+			return;
+		static const char *kNames[] = {"parse", "remap", "schedule", "ring",
+			"retire", "buffers"};
+		printf("RADEONGFX_STATS submissions (%" B_PRId64 "):\n",
+			count[kCsStageParse]);
+		for (int i = 0; i < kCsStageCount; i++) {
+			if (count[i] == 0)
+				continue;
+			printf("  %-10s %7.1f %s\n", kNames[i], (double)time[i] / count[i],
+				i == kCsStageBuffers ? "per submission" : "us");
+		}
+	}
+} sCsStats;
+
+
+void CsStatsAdd(CsStage stage, bigtime_t time)
+{
+	atomic_add64(&sCsStats.count[stage], 1);
+	atomic_add64(&sCsStats.time[stage], time);
+}
+
+
+bool CsStatsEnabled()
+{
+	return sCsStats.enabled;
+}
 
 
 static void Accumulate(BReference<Fence> &dst, BReference<Fence> src)
@@ -90,6 +127,7 @@ status_t CommandSubmission::Remap()
 
 void CommandSubmission::WaitHandler::Do(Fence *fence)
 {
+	bigtime_t start = CsStatsEnabled() ? system_time() : 0;
 	auto cs = &Base();
 	auto ts = ExternalPtr<TeamState>(Base().teamState).Switch();
 	//printf("CommandSubmission::WaitHandler::Do\n");
@@ -138,6 +176,8 @@ void CommandSubmission::WaitHandler::Do(Fence *fence)
 		ring->WriteFence(cs->fence);
 		ring->End();
 	}
+	if (start != 0)
+		CsStatsAdd(kCsStageRing, system_time() - start);
 }
 
 void CommandSubmission::FenceHandler::Do(Fence *fence)
@@ -148,6 +188,7 @@ void CommandSubmission::FenceHandler::Do(Fence *fence)
 void CommandSubmission::FenceResolvedReq::Do(Object *obj)
 {
 	(void)obj;
+	bigtime_t start = CsStatsEnabled() ? system_time() : 0;
 	auto ts = Base().teamState;
 	ts->fCsSeq = Base().seq;
 	//printf("TeamState::Resolved(%" B_PRIu32 ")\n", Base().seq);
@@ -158,6 +199,8 @@ void CommandSubmission::FenceResolvedReq::Do(Object *obj)
 	}
 	ts->fCmdSubs.erase(it);
 	ts->fAddressSpace->ReleaseVmid();
+	if (start != 0)
+		CsStatsAdd(kCsStageRetire, system_time() - start);
 }
 
 void CommandSubmission::FenceResolvedReq::Resolved()

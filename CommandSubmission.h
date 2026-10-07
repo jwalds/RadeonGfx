@@ -11,6 +11,19 @@
 
 class TeamState;
 
+// RADEONGFX_STATS=1: time per submission stage, printed when the server exits
+enum CsStage {
+	kCsStageParse,		// chunks, buffer and syncobj lookups
+	kCsStageRemap,		// IB remapping
+	kCsStageSchedule,	// fences, wait group, signal syncobjs
+	kCsStageRing,		// writing the ring (WaitHandler)
+	kCsStageRetire,		// FenceResolvedReq
+	kCsStageBuffers,	// count: buffers in the BO list
+	kCsStageCount
+};
+void CsStatsAdd(CsStage stage, bigtime_t time);
+bool CsStatsEnabled();
+
 struct IndirectBufferDef {
 	BReference<BufferObject> buf;
 	uint64 offset;

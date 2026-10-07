@@ -365,7 +365,13 @@ status_t TeamState::ScheduleCS(uint64 &handle, CommandSubmission *cs)
 		abort();
 	}
 	// a bad submission is rejected before it gets a sequence number
+	bigtime_t start = CsStatsEnabled() ? system_time() : 0;
 	status_t status = cs->Remap();
+	if (start != 0) {
+		bigtime_t now = system_time();
+		CsStatsAdd(kCsStageRemap, now - start);
+		start = now;
+	}
 	if (status < B_OK) {
 		printf("[!] CS rejected: IBs can't be remapped\n");
 		delete cs;
@@ -377,6 +383,8 @@ status_t TeamState::ScheduleCS(uint64 &handle, CommandSubmission *cs)
 
 	CheckRet(cs->Schedule());
 	fCmdSubs.emplace(handle, cs);
+	if (start != 0)
+		CsStatsAdd(kCsStageSchedule, system_time() - start);
 
 	return B_OK;
 }

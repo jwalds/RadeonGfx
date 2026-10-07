@@ -153,6 +153,8 @@ PolarisRingBufferInt::CheckGfxHang(bigtime_t now)
 status_t
 PolarisRingBufferInt::WaitForInterrupt()
 {
-	snooze(kPollInterval);
+	static const bigtime_t sInterval = getenv("RADEONGFX_POLL_US") != NULL
+		? atoll(getenv("RADEONGFX_POLL_US")) : kPollInterval;
+	snooze(sInterval);
 	return B_OK;
 }

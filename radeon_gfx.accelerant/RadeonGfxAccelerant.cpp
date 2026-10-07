@@ -11,6 +11,7 @@ extern "C" {
 #include <libdrm/amdgpu.h>
 }
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <new>
 
@@ -23,6 +24,121 @@ extern "C" {
 		return _err; \
 	} \
 } \
+
+
+// RADEONGFX_STATS=1: how often each call to the server was made and how
+// long it took, printed when the process exits (per-frame overhead)
+enum {
+	kDrmMmapIndex,
+	kDrmIoctlIndex,
+	kDrmVersionIndex,
+	kDrmCloseBufferHandleIndex,
+	kDrmPrimeHandleToFDIndex,
+	kDrmPrimeFDToHandleIndex,
+	kDrmSyncobjCreateIndex,
+	kDrmSyncobjDestroyIndex,
+	kDrmSyncobjHandleToFDIndex,
+	kDrmSyncobjFDToHandleIndex,
+	kDrmSyncobjImportSyncFileIndex,
+	kDrmSyncobjExportSyncFileIndex,
+	kDrmSyncobjWaitIndex,
+	kDrmSyncobjResetIndex,
+	kDrmSyncobjSignalIndex,
+	kDrmSyncobjTimelineSignalIndex,
+	kDrmSyncobjTimelineWaitIndex,
+	kDrmSyncobjQueryIndex,
+	kDrmSyncobjTransferIndex,
+	kDrmSyncobjAccumulateIndex,
+	kAmdgpuQueryInfoIndex,
+	kAmdgpuBoAllocIndex,
+	kAmdgpuCreateBoFromUserMemIndex,
+	kAmdgpuBoQueryInfoIndex,
+	kAmdgpuBoSetMetadataIndex,
+	kAmdgpuBoVaOpRawIndex,
+	kAmdgpuBoCpuMapIndex,
+	kAmdgpuCsSubmitRawIndex,
+	kAmdgpuWaitCsIndex,
+	kAmdgpuCtxRawIndex,
+	kDisplayGetConsumerIndex,
+	kDisplayUpdateCursorIndex,
+	kCallCount
+};
+
+static const char *kCallNames[] = {
+	"DrmMmap",
+	"DrmIoctl",
+	"DrmVersion",
+	"DrmCloseBufferHandle",
+	"DrmPrimeHandleToFD",
+	"DrmPrimeFDToHandle",
+	"DrmSyncobjCreate",
+	"DrmSyncobjDestroy",
+	"DrmSyncobjHandleToFD",
+	"DrmSyncobjFDToHandle",
+	"DrmSyncobjImportSyncFile",
+	"DrmSyncobjExportSyncFile",
+	"DrmSyncobjWait",
+	"DrmSyncobjReset",
+	"DrmSyncobjSignal",
+	"DrmSyncobjTimelineSignal",
+	"DrmSyncobjTimelineWait",
+	"DrmSyncobjQuery",
+	"DrmSyncobjTransfer",
+	"DrmSyncobjAccumulate",
+	"AmdgpuQueryInfo",
+	"AmdgpuBoAlloc",
+	"AmdgpuCreateBoFromUserMem",
+	"AmdgpuBoQueryInfo",
+	"AmdgpuBoSetMetadata",
+	"AmdgpuBoVaOpRaw",
+	"AmdgpuBoCpuMap",
+	"AmdgpuCsSubmitRaw",
+	"AmdgpuWaitCs",
+	"AmdgpuCtxRaw",
+	"DisplayGetConsumer",
+	"DisplayUpdateCursor",
+};
+
+static struct CallStats {
+	bool enabled = getenv("RADEONGFX_STATS") != NULL;
+	int64 count[kCallCount] = {};
+	bigtime_t time[kCallCount] = {};
+	bigtime_t start = system_time();
+
+	~CallStats()
+	{
+		if (!enabled)
+			return;
+		bigtime_t elapsed = system_time() - start;
+		fprintf(stderr, "RADEONGFX_STATS: %" B_PRId64 " ms\n", elapsed / 1000);
+		for (int i = 0; i < kCallCount; i++) {
+			if (count[i] == 0)
+				continue;
+			fprintf(stderr, "  %-28s %9" B_PRId64 " calls %8.1f/s %7.1f us"
+				" %7.1f%% of the time\n", kCallNames[i], count[i],
+				count[i] * 1e6 / elapsed, (double)time[i] / count[i],
+				100.0 * time[i] / elapsed);
+		}
+	}
+} sCallStats;
+
+
+class CallTimer {
+public:
+	CallTimer(int index): fIndex(index),
+		fStart(sCallStats.enabled ? system_time() : 0) {}
+	~CallTimer()
+	{
+		if (!sCallStats.enabled)
+			return;
+		atomic_add64(&sCallStats.count[fIndex], 1);
+		atomic_add64(&sCallStats.time[fIndex], system_time() - fStart);
+	}
+
+private:
+	int fIndex;
+	bigtime_t fStart;
+};
 
 
 BLocker RadeonGfxAccelerant::sContextLock("radeon_gfx contexts");
@@ -73,6 +189,7 @@ void *RadeonGfxAccelerant::QueryInterface(const char *iface, uint32 version)
 
 void *RadeonGfxAccelerant::DrmMmap(void *addr, size_t length, int prot, int flags, off_t offset)
 {
+	CallTimer callTimer(kDrmMmapIndex);
 	(void)addr;
 	(void)length;
 	(void)prot;
@@ -107,6 +224,7 @@ void *RadeonGfxAccelerant::DrmMmap(void *addr, size_t length, int prot, int flag
 
 int RadeonGfxAccelerant::DrmIoctl(uint32 request, void *arg)
 {
+	CallTimer callTimer(kDrmIoctlIndex);
 	(void)request;
 	(void)arg;
 	return ENOSYS;
@@ -115,6 +233,7 @@ int RadeonGfxAccelerant::DrmIoctl(uint32 request, void *arg)
 
 int RadeonGfxAccelerant::DrmVersion(struct drm_version *version)
 {
+	CallTimer callTimer(kDrmVersionIndex);
 	const char *name = "amdgpu";
 	const char *date = "20150101";
 	const char *desc = "AMD GPU";
@@ -133,6 +252,7 @@ int RadeonGfxAccelerant::DrmVersion(struct drm_version *version)
 
 int RadeonGfxAccelerant::DrmCloseBufferHandle(uint32_t handle)
 {
+	CallTimer callTimer(kDrmCloseBufferHandleIndex);
 	ThreadLinkHolder link(fConn);
 	link.StartMessage(radeonIoctlMsg);
 	link.Attach<int>(fFd.Get());
@@ -147,6 +267,7 @@ int RadeonGfxAccelerant::DrmCloseBufferHandle(uint32_t handle)
 
 int RadeonGfxAccelerant::DrmPrimeHandleToFD(uint32_t handle, uint32_t flags, int *prime_fd)
 {
+	CallTimer callTimer(kDrmPrimeHandleToFDIndex);
 	(void)flags;
 	ThreadLinkHolder link(fConn);
 	link.StartMessage(radeonIoctlMsg);
@@ -162,6 +283,7 @@ int RadeonGfxAccelerant::DrmPrimeHandleToFD(uint32_t handle, uint32_t flags, int
 
 int RadeonGfxAccelerant::DrmPrimeFDToHandle(int prime_fd, uint32_t *handle)
 {
+	CallTimer callTimer(kDrmPrimeFDToHandleIndex);
 	ThreadLinkHolder link(fConn);
 	link.StartMessage(radeonIoctlMsg);
 	link.Attach<int>(fFd.Get());
@@ -177,6 +299,7 @@ int RadeonGfxAccelerant::DrmPrimeFDToHandle(int prime_fd, uint32_t *handle)
 
 int RadeonGfxAccelerant::DrmSyncobjCreate(uint32_t flags, uint32_t *handle)
 {
+	CallTimer callTimer(kDrmSyncobjCreateIndex);
 	ThreadLinkHolder link(fConn);
 	link.StartMessage(radeonIoctlMsg);
 	link.Attach<int>(fFd.Get());
@@ -191,6 +314,7 @@ int RadeonGfxAccelerant::DrmSyncobjCreate(uint32_t flags, uint32_t *handle)
 
 int RadeonGfxAccelerant::DrmSyncobjDestroy(uint32_t handle)
 {
+	CallTimer callTimer(kDrmSyncobjDestroyIndex);
 	ThreadLinkHolder link(fConn);
 	link.StartMessage(radeonIoctlMsg);
 	link.Attach<int>(fFd.Get());
@@ -205,6 +329,7 @@ int RadeonGfxAccelerant::DrmSyncobjDestroy(uint32_t handle)
 
 int RadeonGfxAccelerant::DrmSyncobjHandleToFD(uint32_t handle, int *obj_fd)
 {
+	CallTimer callTimer(kDrmSyncobjHandleToFDIndex);
 	ThreadLinkHolder link(fConn);
 	link.StartMessage(radeonIoctlMsg);
 	link.Attach<int>(fFd.Get());
@@ -219,6 +344,7 @@ int RadeonGfxAccelerant::DrmSyncobjHandleToFD(uint32_t handle, int *obj_fd)
 
 int RadeonGfxAccelerant::DrmSyncobjFDToHandle(int obj_fd, uint32_t *handle)
 {
+	CallTimer callTimer(kDrmSyncobjFDToHandleIndex);
 	ThreadLinkHolder link(fConn);
 	link.StartMessage(radeonIoctlMsg);
 	link.Attach<int>(fFd.Get());
@@ -233,6 +359,7 @@ int RadeonGfxAccelerant::DrmSyncobjFDToHandle(int obj_fd, uint32_t *handle)
 
 int RadeonGfxAccelerant::DrmSyncobjImportSyncFile(uint32_t handle, int sync_file_fd)
 {
+	CallTimer callTimer(kDrmSyncobjImportSyncFileIndex);
 	(void)handle;
 	(void)sync_file_fd;
 	CheckRet(ENOSYS);
@@ -241,6 +368,7 @@ int RadeonGfxAccelerant::DrmSyncobjImportSyncFile(uint32_t handle, int sync_file
 
 int RadeonGfxAccelerant::DrmSyncobjExportSyncFile(uint32_t handle, int *sync_file_fd)
 {
+	CallTimer callTimer(kDrmSyncobjExportSyncFileIndex);
 	(void)handle;
 	(void)sync_file_fd;
 	CheckRet(ENOSYS);
@@ -249,6 +377,7 @@ int RadeonGfxAccelerant::DrmSyncobjExportSyncFile(uint32_t handle, int *sync_fil
 
 int RadeonGfxAccelerant::DrmSyncobjWait(uint32_t *handles, unsigned num_handles, int64_t timeout_nsec, unsigned flags, uint32_t *first_signaled)
 {
+	CallTimer callTimer(kDrmSyncobjWaitIndex);
 	ThreadLinkHolder link(fConn);
 	link.StartMessage(radeonIoctlMsg);
 	link.Attach<int>(fFd.Get());
@@ -270,6 +399,7 @@ int RadeonGfxAccelerant::DrmSyncobjWait(uint32_t *handles, unsigned num_handles,
 
 int RadeonGfxAccelerant::DrmSyncobjReset(const uint32_t *handles, uint32_t handle_count)
 {
+	CallTimer callTimer(kDrmSyncobjResetIndex);
 	ThreadLinkHolder link(fConn);
 	link.StartMessage(radeonIoctlMsg);
 	link.Attach<int>(fFd.Get());
@@ -284,6 +414,7 @@ int RadeonGfxAccelerant::DrmSyncobjReset(const uint32_t *handles, uint32_t handl
 
 int RadeonGfxAccelerant::DrmSyncobjSignal(const uint32_t *handles, uint32_t handle_count)
 {
+	CallTimer callTimer(kDrmSyncobjSignalIndex);
 	(void)handles;
 	(void)handle_count;
 	CheckRet(ENOSYS);
@@ -292,6 +423,7 @@ int RadeonGfxAccelerant::DrmSyncobjSignal(const uint32_t *handles, uint32_t hand
 
 int RadeonGfxAccelerant::DrmSyncobjTimelineSignal(const uint32_t *handles, uint64_t *points, uint32_t handle_count)
 {
+	CallTimer callTimer(kDrmSyncobjTimelineSignalIndex);
 	(void)handles;
 	(void)points;
 	(void)handle_count;
@@ -301,6 +433,7 @@ int RadeonGfxAccelerant::DrmSyncobjTimelineSignal(const uint32_t *handles, uint6
 
 int RadeonGfxAccelerant::DrmSyncobjTimelineWait(uint32_t *handles, uint64_t *points, unsigned num_handles, int64_t timeout_nsec, unsigned flags, uint32_t *first_signaled)
 {
+	CallTimer callTimer(kDrmSyncobjTimelineWaitIndex);
 	ThreadLinkHolder link(fConn);
 	link.StartMessage(radeonIoctlMsg);
 	link.Attach<int>(fFd.Get());
@@ -324,6 +457,7 @@ int RadeonGfxAccelerant::DrmSyncobjTimelineWait(uint32_t *handles, uint64_t *poi
 
 int RadeonGfxAccelerant::DrmSyncobjQuery(uint32_t *handles, uint64_t *points, uint32_t handle_count, uint32_t flags)
 {
+	CallTimer callTimer(kDrmSyncobjQueryIndex);
 	(void)handles;
 	(void)points;
 	(void)handle_count;
@@ -334,6 +468,7 @@ int RadeonGfxAccelerant::DrmSyncobjQuery(uint32_t *handles, uint64_t *points, ui
 
 int RadeonGfxAccelerant::DrmSyncobjTransfer(uint32_t dst_handle, uint64_t dst_point, uint32_t src_handle, uint64_t src_point, uint32_t flags)
 {
+	CallTimer callTimer(kDrmSyncobjTransferIndex);
 	ThreadLinkHolder link(fConn);
 	link.StartMessage(radeonIoctlMsg);
 	link.Attach<int>(fFd.Get());
@@ -343,15 +478,18 @@ int RadeonGfxAccelerant::DrmSyncobjTransfer(uint32_t dst_handle, uint64_t dst_po
 	link.Attach<uint64_t>(src_point);
 	link.Attach<uint64_t>(dst_point);
 	link.Attach<uint32_t>(flags);
-	link.Attach<uint64_t>(0); // pad
-	status_t reply;
-	link.FlushWithReply(reply);
-	CheckRet(reply);
+	link.Attach<uint32_t>(0); // pad
+	// One-way: the server handles the messages of this thread in order, so
+	// everything this thread sends afterwards sees the transfer. Other
+	// threads wait for the point with WAIT_FOR_SUBMIT. Errors are logged by
+	// the server.
+	link.Flush();
 	return B_OK;
 }
 
 int RadeonGfxAccelerant::DrmSyncobjAccumulate(uint32_t syncobj1, uint32_t syncobj2, uint64_t point)
 {
+	CallTimer callTimer(kDrmSyncobjAccumulateIndex);
 	ThreadLinkHolder link(fConn);
 	link.StartMessage(radeonIoctlMsg);
 	link.Attach<int>(fFd.Get());
@@ -370,6 +508,7 @@ int RadeonGfxAccelerant::DrmSyncobjAccumulate(uint32_t syncobj1, uint32_t syncob
 
 int RadeonGfxAccelerant::AmdgpuQueryInfo(struct drm_amdgpu_info *info)
 {
+	CallTimer callTimer(kAmdgpuQueryInfoIndex);
 	ThreadLinkHolder link(fConn);
 	link.StartMessage(radeonIoctlMsg);
 	link.Attach<int>(fFd.Get());
@@ -431,6 +570,7 @@ int RadeonGfxAccelerant::AmdgpuQueryInfo(struct drm_amdgpu_info *info)
 
 int RadeonGfxAccelerant::AmdgpuBoAlloc(struct amdgpu_bo_alloc_request *alloc_buffer, uint32_t *buf_handle)
 {
+	CallTimer callTimer(kAmdgpuBoAllocIndex);
 	ThreadLinkHolder link(fConn);
 	link.StartMessage(radeonIoctlMsg);
 	link.Attach<int>(fFd.Get());
@@ -450,6 +590,7 @@ int RadeonGfxAccelerant::AmdgpuBoAlloc(struct amdgpu_bo_alloc_request *alloc_buf
 
 int RadeonGfxAccelerant::AmdgpuCreateBoFromUserMem(void *cpu, uint64_t size, uint32_t *buf_handle)
 {
+	CallTimer callTimer(kAmdgpuCreateBoFromUserMemIndex);
 	ThreadLinkHolder link(fConn);
 
 	area_id area = area_for(cpu);
@@ -474,6 +615,7 @@ int RadeonGfxAccelerant::AmdgpuCreateBoFromUserMem(void *cpu, uint64_t size, uin
 
 int RadeonGfxAccelerant::AmdgpuBoQueryInfo(uint32_t bo, struct amdgpu_bo_info *info)
 {
+	CallTimer callTimer(kAmdgpuBoQueryInfoIndex);
 	ThreadLinkHolder link(fConn);
 	struct drm_amdgpu_gem_metadata metadata {};
 	struct drm_amdgpu_gem_create_in bo_info {};
@@ -513,6 +655,7 @@ int RadeonGfxAccelerant::AmdgpuBoQueryInfo(uint32_t bo, struct amdgpu_bo_info *i
 
 int RadeonGfxAccelerant::AmdgpuBoSetMetadata(uint32_t bo, struct amdgpu_bo_metadata *info)
 {
+	CallTimer callTimer(kAmdgpuBoSetMetadataIndex);
 	ThreadLinkHolder link(fConn);
 	struct drm_amdgpu_gem_metadata args {};
 
@@ -539,6 +682,7 @@ int RadeonGfxAccelerant::AmdgpuBoSetMetadata(uint32_t bo, struct amdgpu_bo_metad
 
 int RadeonGfxAccelerant::AmdgpuBoVaOpRaw(uint32_t bo, uint64_t offset, uint64_t size, uint64_t addr, uint64_t flags, uint32_t ops)
 {
+	CallTimer callTimer(kAmdgpuBoVaOpRawIndex);
 	ThreadLinkHolder link(fConn);
 	link.StartMessage(radeonIoctlMsg);
 	link.Attach<int>(fFd.Get());
@@ -558,6 +702,7 @@ int RadeonGfxAccelerant::AmdgpuBoVaOpRaw(uint32_t bo, uint64_t offset, uint64_t 
 
 int RadeonGfxAccelerant::AmdgpuBoCpuMap(uint32_t bo, void **cpu)
 {
+	CallTimer callTimer(kAmdgpuBoCpuMapIndex);
 	void *adr = DrmMmap(NULL, 0, 0, 0, (off_t)bo);
 	if (adr == NULL) return B_ERROR;
 	*cpu = adr;
@@ -566,6 +711,7 @@ int RadeonGfxAccelerant::AmdgpuBoCpuMap(uint32_t bo, void **cpu)
 
 int RadeonGfxAccelerant::AmdgpuCsSubmitRaw(uint32_t context_id, uint32_t bo_list_handle, int num_chunks, struct drm_amdgpu_cs_chunk *chunks, uint64_t *seq_no)
 {
+	CallTimer callTimer(kAmdgpuCsSubmitRawIndex);
 	ThreadLinkHolder link(fConn);
 	link.StartMessage(radeonIoctlMsg);
 	link.Attach<int>(fFd.Get());
@@ -608,6 +754,7 @@ int RadeonGfxAccelerant::AmdgpuCsSubmitRaw(uint32_t context_id, uint32_t bo_list
 
 int RadeonGfxAccelerant::AmdgpuWaitCs(uint32_t ctx_id, unsigned ip, unsigned ip_instance, uint32_t ring, uint64_t handle, uint64_t timeout_ns, bool *busy)
 {
+	CallTimer callTimer(kAmdgpuWaitCsIndex);
 	ThreadLinkHolder link(fConn);
 	link.StartMessage(radeonIoctlMsg);
 	link.Attach<int>(fFd.Get());
@@ -629,6 +776,7 @@ int RadeonGfxAccelerant::AmdgpuWaitCs(uint32_t ctx_id, unsigned ip, unsigned ip_
 
 int RadeonGfxAccelerant::AmdgpuCtxRaw(union drm_amdgpu_ctx *args)
 {
+	CallTimer callTimer(kAmdgpuCtxRawIndex);
 	// the server keeps the contexts: a GPU reset marks them, and RADV asks
 	// with AMDGPU_CTX_OP_QUERY_STATE2 after every wait whether its device is
 	// lost; without a reset since the context's creation, that's known here
@@ -673,6 +821,7 @@ int RadeonGfxAccelerant::AmdgpuCtxRaw(union drm_amdgpu_ctx *args)
 
 status_t RadeonGfxAccelerant::DisplayGetConsumer(int32 crtc, BMessenger &consumer)
 {
+	CallTimer callTimer(kDisplayGetConsumerIndex);
 	ThreadLinkHolder link(fConn);
 	link.StartMessage(radeonGetDisplayConsumer);
 	link.Attach(crtc);
@@ -685,6 +834,7 @@ status_t RadeonGfxAccelerant::DisplayGetConsumer(int32 crtc, BMessenger &consume
 
 status_t RadeonGfxAccelerant::DisplayUpdateCursor(int32 crtc, const CursorUpdateInfo &info)
 {
+	CallTimer callTimer(kDisplayUpdateCursorIndex);
 	ThreadLinkHolder link(fConn);
 	link.StartMessage(radeonUpdateCursor);
 	link.Attach(crtc);

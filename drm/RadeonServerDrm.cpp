@@ -10,12 +10,52 @@ extern "C" {
 #include <libdrm/amdgpu_drm.h>
 }
 #include <stdio.h>
+#include <OS.h>
 
 #define CheckLink(err) {status_t _err = (err); if (_err < B_OK) {link.StartMessage(_err); link.Flush(); return;}}
 
 
+// RADEONGFX_STATS=1: handling time per ioctl (number % 0x100), printed when
+// the server exits; with the client's numbers it splits a call into
+// transport and handling
+static struct HandlerStats {
+	bool enabled = getenv("RADEONGFX_STATS") != NULL;
+	int64 count[256] = {};
+	bigtime_t time[256] = {};
+
+	~HandlerStats()
+	{
+		if (!enabled)
+			return;
+		printf("RADEONGFX_STATS server (ioctl number %% 0x100, 0x40+: amdgpu):\n");
+		for (int i = 0; i < 256; i++) {
+			if (count[i] == 0)
+				continue;
+			printf("  ioctl %#04x %9" B_PRId64 " calls %7.1f us\n", i, count[i],
+				(double)time[i] / count[i]);
+		}
+	}
+} sHandlerStats;
+
+
+class HandlerTimer {
+public:
+	int fIndex = -1;
+	bigtime_t fStart = sHandlerStats.enabled ? system_time() : 0;
+
+	~HandlerTimer()
+	{
+		if (!sHandlerStats.enabled || fIndex < 0)
+			return;
+		atomic_add64(&sHandlerStats.count[fIndex], 1);
+		atomic_add64(&sHandlerStats.time[fIndex], system_time() - fStart);
+	}
+};
+
+
 void RadeonHandleDrmMessage(BPrivate::PortLink &link, ExternalRef<TeamState> state, int32 what)
 {
+	HandlerTimer handlerTimer;
 	switch (what) {
 		case radeonMmapMsg: {
 			int32 handle;
@@ -39,6 +79,7 @@ void RadeonHandleDrmMessage(BPrivate::PortLink &link, ExternalRef<TeamState> sta
 			uint32_t request;
 			link.Read(&fd);
 			link.Read(&request);
+			handlerTimer.fIndex = request % 0x100;
 			static const bool trace = getenv("RADEONGFX_TRACE") != NULL;
 			if (trace)
 				printf("ioctl %#" B_PRIx32 "\n", request);
@@ -369,6 +410,16 @@ void RadeonHandleDrmMessage(BPrivate::PortLink &link, ExternalRef<TeamState> sta
 					struct drm_syncobj_transfer args;
 					link.Read(&args, sizeof(args));
 					status_t res = drmIoctlInt(state, request, &args);
+					// one-way when the client does not wait for the result
+					if (!link.NeedsReply()) {
+						if (res < B_OK) {
+							fprintf(stderr, "[!] SYNCOBJ_TRANSFER(%" B_PRIu32 ":%" B_PRIu64
+								" -> %" B_PRIu32 ":%" B_PRIu64 "): %s\n", args.src_handle,
+								(uint64)args.src_point, args.dst_handle, (uint64)args.dst_point,
+								strerror(res));
+						}
+						return;
+					}
 					link.StartMessage(res);
 					link.Flush();
 					return;
