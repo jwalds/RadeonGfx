@@ -12,6 +12,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <new>
+
 
 static void WriteBuffer(BufferObject& buf)
 {
@@ -64,10 +66,11 @@ Pte *AddressSpace::LookupPte(uint64 virtAdr, bool alloc)
 	uint64 pteIdx = virtAdr / B_PAGE_SIZE % pageTableLen;
 	uint64 pdeIdx = virtAdr / B_PAGE_SIZE / pageTableLen;
 	if (pdeIdx >= pageDirLen) return NULL;
-	Pte *pde = (Pte*)fPageDirBuf.adr + pdeIdx;
-	Pte pdeVal = *pde;
-	if (!(pdeVal.flags & R600_PTE_VALID)) {
+	// the page directory is in VRAM, which is slow to read from the CPU: the
+	// page table buffer tells whether the entry is set
+	if (!fPageTableBufs[pdeIdx].buf.IsSet()) {
 		if (!alloc) return NULL;
+		Pte *pde = (Pte*)fPageDirBuf.adr + pdeIdx;
 		fPageTableBufs[pdeIdx].SetTo(gDevice.MemMgr().Switch()->Alloc(boDomainVramMappable, pageTableLen*sizeof(Pte)));
 		if (!fPageTableBufs[pdeIdx].buf.IsSet()) {
 			printf("[!] AddressSpace::LookupPte: out of mappable VRAM memory\n");
@@ -106,10 +109,10 @@ status_t AddressSpace::MapIntRange(uint64 virtAdr, uint64 physAdr, uint64 size, 
 
 status_t AddressSpace::UnmapInt(uint64 virtAdr)
 {
+	// the entry isn't read back to check it (VRAM reads are slow), Unmap()
+	// only unmaps known mappings
 	Pte *pte = LookupPte(virtAdr, false);
 	if (pte == NULL) return B_ERROR;
-	Pte oldPte = *pte;
-	if (!(oldPte.flags & R600_PTE_VALID)) return B_ERROR;
 	*pte = Pte{.val = 0};
 	return B_OK;
 }
@@ -175,16 +178,18 @@ status_t AddressSpace::Map(BReference<BufferObject> buffer, uint64 mapAdr, uint6
 		flags |= R600_PTE_EXECUTABLE;
 	if (buffer->domain == boDomainGtt) {
 		flags |= R600_PTE_SYSTEM | R600_PTE_SNOOPED;
-		Pte *gartPageTableAdr = (Pte*)gDevice.MemMgr().Switch()->fGartPageTable.adr;
+		// the GART entries of a buffer don't change while it exists: no switch
+		// into the memory manager's domain (it costs more than the mapping)
+		MemoryManager *memMgr = gDevice.MemMgr().Get();
 		for (uint64 ofs = 0; ofs < size; ofs += B_PAGE_SIZE) {
-			uint64 gttAdr = buffer->gpuPhysAdr + offset + ofs - gDevice.MemMgr().Switch()->fGttRange.beg;
-			Pte gttPte = gartPageTableAdr[gttAdr/B_PAGE_SIZE];
+			Pte gttPte = memMgr->GartPte(buffer->gpuPhysAdr + offset + ofs);
 			MapInt(mapAdr + ofs, gttPte.ppn*B_PAGE_SIZE, flags);
 		}
 	} else {
 		uint64 virtBeg = mapAdr/B_PAGE_SIZE;
 		uint64 virtEnd = (mapAdr + size)/B_PAGE_SIZE;
-		uint64 physAdr = gDevice.MemMgr().Switch()->VramPteAddress(
+		// set at initialization
+		uint64 physAdr = gDevice.MemMgr().Get()->VramPteAddress(
 			buffer->gpuPhysAdr + offset);
 
 		uint64 fragFlags = R600_PTE_FRAG_64KB;
@@ -568,6 +573,13 @@ status_t MemoryManager::GartMap(BReference<BufferObject> buffer)
 	uint8 *cpuVirtAdr;
 	Pte *pageTableVirtAdr = (Pte*)fGartPageTable.adr;
 	CheckRet(gDevice.MemMgr().Switch()->CpuMap(*(void**)&cpuVirtAdr, buffer, 0, buffer->size));
+	if (!fGartShadow.IsSet()) {
+		uint64 count = fGttRange.size / B_PAGE_SIZE;
+		fGartShadow.SetTo(new(std::nothrow) Pte[count]);
+		if (!fGartShadow.IsSet())
+			return B_NO_MEMORY;
+		memset(fGartShadow.Get(), 0, count * sizeof(Pte));
+	}
 	for (uint64 offset = 0; offset < buffer->size; offset += B_PAGE_SIZE) {
 		uint64 cpuPhysAdr;
 		CheckRet(gPoke.GetPhysicalAddress(cpuPhysAdr, cpuVirtAdr + offset, B_PAGE_SIZE));
@@ -579,6 +591,7 @@ status_t MemoryManager::GartMap(BReference<BufferObject> buffer)
 			.ppn = cpuPhysAdr / B_PAGE_SIZE
 		};
 		pageTableVirtAdr[(buffer->gpuPhysAdr - fGttRange.beg + offset) / B_PAGE_SIZE] = pte;
+		fGartShadow[(buffer->gpuPhysAdr - fGttRange.beg + offset) / B_PAGE_SIZE] = pte;
 		// printf("  %#" B_PRIx64 ": %#" B_PRIx64 "\n", buffer->gpuPhysAdr - fGttRange.beg + offset, cpuPhysAdr);
 	}
 	GartFlushTlb();
@@ -590,6 +603,8 @@ status_t MemoryManager::GartUnmap(BufferObject *buffer)
 	Pte *pageTableVirtAdr = (Pte*)fGartPageTable.adr;
 	for (uint64 offset = 0; offset < buffer->size; offset += B_PAGE_SIZE) {
 		pageTableVirtAdr[(buffer->gpuPhysAdr - fGttRange.beg + offset) / B_PAGE_SIZE] = Pte{.val = 0};
+		if (fGartShadow.IsSet())
+			fGartShadow[(buffer->gpuPhysAdr - fGttRange.beg + offset) / B_PAGE_SIZE] = Pte{.val = 0};
 	}
 	GartFlushTlb();
 	return B_OK;

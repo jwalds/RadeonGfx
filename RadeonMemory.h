@@ -136,6 +136,9 @@ private:
 	bool fGartEnabled;
 	bool fGartRegistersSaved = false;
 	MappedBuffer fGartPageTable;
+	// copy of the GART page table entries in system memory: the table is in
+	// VRAM, reading it from the CPU is slow
+	ArrayDeleter<Pte> fGartShadow;
 	// Polaris: VRAM addresses in page table entries count from the start of
 	// VRAM (Linux amdgpu_vm_update_range() with vram_base_offset 0), not from
 	// its MC address; page directory entries use the MC address
@@ -179,6 +182,12 @@ public:
 	status_t InitGartPolaris(bool vmContexts = false);
 	void FiniGartPolaris();
 	MappedBuffer &GartPageTable() {return fGartPageTable;}
+	// the GART page table entry of a GTT address
+	Pte GartPte(uint64 gttAdr)
+	{
+		if (!fGartShadow.IsSet()) return Pte{.val = 0};
+		return fGartShadow[(gttAdr - fGttRange.beg) / B_PAGE_SIZE];
+	}
 	uint64 VramPteAddress(uint64 mcAddress) {return mcAddress - fVramPteBase;}
 	bool GartEnabled() {return fGartEnabled;}
 

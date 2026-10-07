@@ -1,6 +1,6 @@
 project('RadeonGfx', 'cpp',
 	version : '0.1',
-	default_options : ['warning_level=3', 'cpp_std=c++2a']
+	default_options : ['warning_level=3', 'cpp_std=c++2a', 'buildtype=debugoptimized']
 )
 
 compiler = meson.get_compiler('cpp')
