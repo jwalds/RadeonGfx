@@ -10,6 +10,11 @@
 // needs a round trip to the server
 #define RADEON_GFX_RESET_COUNTER_AREA "radeon_gfx reset counter"
 
+// the clients' clone of the server's CPU visible VRAM, kept for the process'
+// lifetime; libdrm's amdgpu_bo_cpu_unmap() must not delete it (the same
+// name is in libdrm2's amdgpu_bo.c)
+#define RADEON_GFX_VRAM_CLONE_NAME "radeon_gfx vram clone"
+
 // per client team: the last signaled point (uint64) of each syncobj handle
 // below RADEON_GFX_SYNCOBJ_POINTS_COUNT, read by the client to answer a
 // timeline wait for points already reached without a round trip (Linux'

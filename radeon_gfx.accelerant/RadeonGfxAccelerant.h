@@ -24,6 +24,10 @@ private:
 	static BLocker sContextLock;
 	static std::map<uint32, int32> sContextResetCounters;
 
+	// areas this large are cloned once per process (CPU visible VRAM)
+	static const size_t kSharedCloneMinSize = 64 * 1024 * 1024;
+	static uint8 *SharedClone(area_id area);
+
 	static const volatile uint64 *SyncobjPoints();
 	static bool TimelinePointsSignaled(const uint32_t *handles,
 		const uint64_t *points, unsigned count, bool all,

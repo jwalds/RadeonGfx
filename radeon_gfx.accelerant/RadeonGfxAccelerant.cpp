@@ -187,6 +187,34 @@ void *RadeonGfxAccelerant::QueryInterface(const char *iface, uint32 version)
 
 // #pragma mark - DRM
 
+/*!	The server's CPU visible VRAM (256 MB) is cloned once per process and
+	kept: cloning it maps every page (about 6 ms), it was done for every CPU
+	map of a VRAM buffer. libdrm's amdgpu_bo_cpu_unmap() deletes the clone of
+	a map, except this one (by its name).
+*/
+uint8 *RadeonGfxAccelerant::SharedClone(area_id area)
+{
+	static area_id sSource = -1;
+	static uint8 *sAddress = NULL;
+	BAutolock lock(sContextLock);
+	if (sAddress != NULL && sSource == area)
+		return sAddress;
+	if (sAddress != NULL) {
+		// a different area (the server restarted?): not expected
+		fprintf(stderr, "[!] radeon_gfx: second shared area %" B_PRId32
+			" (have %" B_PRId32 ")\n", area, sSource);
+		return NULL;
+	}
+	void *address;
+	area_id clone = clone_area(RADEON_GFX_VRAM_CLONE_NAME, &address,
+		B_ANY_ADDRESS, B_READ_AREA | B_WRITE_AREA | B_CLONEABLE_AREA, area);
+	if (clone < B_OK)
+		return NULL;
+	sSource = area;
+	sAddress = (uint8*)address;
+	return sAddress;
+}
+
 void *RadeonGfxAccelerant::DrmMmap(void *addr, size_t length, int prot, int flags, off_t offset)
 {
 	CallTimer callTimer(kDrmMmapIndex);
@@ -213,6 +241,9 @@ void *RadeonGfxAccelerant::DrmMmap(void *addr, size_t length, int prot, int flag
 	uint8* adr{};
 	if (info.team == B_SYSTEM_TEAM && (info.protection & (B_READ_AREA | B_WRITE_AREA)) != 0) {
 		adr = (uint8*)info.address;
+	} else if (info.size >= kSharedCloneMinSize) {
+		adr = SharedClone(area);
+		if (adr == NULL) return NULL;
 	} else {
 		AreaDeleter mappedArea(clone_area("cloned buffer", (void**)&adr, B_ANY_ADDRESS, B_READ_AREA | B_WRITE_AREA | B_CLONEABLE_AREA, area));
 		if (!mappedArea.IsSet()) return NULL;

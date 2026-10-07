@@ -77,13 +77,11 @@ Pte *AddressSpace::LookupPte(uint64 virtAdr, bool alloc)
 			return NULL;
 		}
 		memset(fPageTableBufs[pdeIdx].adr, 0, fPageTableBufs[pdeIdx].buf->size);
-		*pde = Pte{
-			.flags = R600_PTE_VALID,
-			// page directory entries hold the MC address (Linux
-			// amdgpu_gmc_get_pde_for_bo()), page table entries for VRAM the
-			// offset in VRAM (VramPteAddress())
-			.ppn = fPageTableBufs[pdeIdx].buf->gpuPhysAdr / B_PAGE_SIZE
-		};
+		// page directory entries hold the MC address (Linux
+		// amdgpu_gmc_get_pde_for_bo()), page table entries for VRAM the
+		// offset in VRAM (VramPteAddress())
+		StorePte(pde, MakePte(R600_PTE_VALID,
+			fPageTableBufs[pdeIdx].buf->gpuPhysAdr / B_PAGE_SIZE));
 	}
 	return (Pte*)fPageTableBufs[pdeIdx].adr + pteIdx;
 }
@@ -92,10 +90,7 @@ status_t AddressSpace::MapInt(uint64 virtAdr, uint64 physAdr, uint32 flags)
 {
 	Pte *pte = LookupPte(virtAdr, true);
 	if (pte == NULL) return B_ERROR;
-	*pte = Pte{
-		.flags = flags | R600_PTE_VALID,
-		.ppn = physAdr/B_PAGE_SIZE
-	};
+	StorePte(pte, MakePte(flags | R600_PTE_VALID, physAdr / B_PAGE_SIZE));
 	return B_OK;
 }
 
@@ -113,7 +108,7 @@ status_t AddressSpace::UnmapInt(uint64 virtAdr)
 	// only unmaps known mappings
 	Pte *pte = LookupPte(virtAdr, false);
 	if (pte == NULL) return B_ERROR;
-	*pte = Pte{.val = 0};
+	StorePte(pte, Pte{.val = 0});
 	return B_OK;
 }
 
@@ -580,19 +575,28 @@ status_t MemoryManager::GartMap(BReference<BufferObject> buffer)
 			return B_NO_MEMORY;
 		memset(fGartShadow.Get(), 0, count * sizeof(Pte));
 	}
-	for (uint64 offset = 0; offset < buffer->size; offset += B_PAGE_SIZE) {
+	// Polaris: command processor fetches (ring, IBs) are execute accesses;
+	// without the bit they fault (protection 0x20) to the dummy page
+	uint32 executable = gDevice.IsPolaris() ? R600_PTE_EXECUTABLE : 0;
+	uint32 flags = R600_PTE_VALID | R600_PTE_SYSTEM | R600_PTE_READABLE
+		| R600_PTE_WRITEABLE | R600_PTE_SNOOPED | executable;
+	// one lookup per physically contiguous run, not per page
+	for (uint64 offset = 0; offset < buffer->size; ) {
 		uint64 cpuPhysAdr;
-		CheckRet(gPoke.GetPhysicalAddress(cpuPhysAdr, cpuVirtAdr + offset, B_PAGE_SIZE));
-		// Polaris: command processor fetches (ring, IBs) are execute accesses;
-		// without the bit they fault (protection 0x20) to the dummy page
-		uint32 executable = gDevice.IsPolaris() ? R600_PTE_EXECUTABLE : 0;
-		Pte pte{
-			.flags = R600_PTE_VALID | R600_PTE_SYSTEM | R600_PTE_READABLE | R600_PTE_WRITEABLE | R600_PTE_SNOOPED | executable,
-			.ppn = cpuPhysAdr / B_PAGE_SIZE
-		};
-		pageTableVirtAdr[(buffer->gpuPhysAdr - fGttRange.beg + offset) / B_PAGE_SIZE] = pte;
-		fGartShadow[(buffer->gpuPhysAdr - fGttRange.beg + offset) / B_PAGE_SIZE] = pte;
-		// printf("  %#" B_PRIx64 ": %#" B_PRIx64 "\n", buffer->gpuPhysAdr - fGttRange.beg + offset, cpuPhysAdr);
+		size_t runSize;
+		CheckRet(gPoke.GetPhysicalRun(cpuPhysAdr, runSize, cpuVirtAdr + offset,
+			buffer->size - offset));
+		runSize = RoundDown<uint64>(runSize, B_PAGE_SIZE);
+		if (runSize == 0)
+			return B_ERROR;
+		for (uint64 runOfs = 0; runOfs < runSize; runOfs += B_PAGE_SIZE) {
+			Pte pte = MakePte(flags, (cpuPhysAdr + runOfs) / B_PAGE_SIZE);
+			uint64 index = (buffer->gpuPhysAdr - fGttRange.beg + offset + runOfs)
+				/ B_PAGE_SIZE;
+			StorePte(&pageTableVirtAdr[index], pte);
+			fGartShadow[index] = pte;
+		}
+		offset += runSize;
 	}
 	GartFlushTlb();
 	return B_OK;
@@ -602,7 +606,8 @@ status_t MemoryManager::GartUnmap(BufferObject *buffer)
 {
 	Pte *pageTableVirtAdr = (Pte*)fGartPageTable.adr;
 	for (uint64 offset = 0; offset < buffer->size; offset += B_PAGE_SIZE) {
-		pageTableVirtAdr[(buffer->gpuPhysAdr - fGttRange.beg + offset) / B_PAGE_SIZE] = Pte{.val = 0};
+		StorePte(&pageTableVirtAdr[(buffer->gpuPhysAdr - fGttRange.beg + offset) / B_PAGE_SIZE],
+			Pte{.val = 0});
 		if (fGartShadow.IsSet())
 			fGartShadow[(buffer->gpuPhysAdr - fGttRange.beg + offset) / B_PAGE_SIZE] = Pte{.val = 0};
 	}

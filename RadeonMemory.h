@@ -78,6 +78,22 @@ union Pte {
 	uint64 val;
 };
 
+// Page tables are in VRAM, uncached for CPU reads (about 1 us each). An entry
+// written field by field is read back to merge the bit fields (twice per
+// entry with gcc -O2): build it in a register and store it at once.
+static inline Pte
+MakePte(uint64 flags, uint64 ppn)
+{
+	return Pte{.val = (ppn << 12) | (flags & 0xfff)};
+}
+
+static inline void
+StorePte(Pte *dst, Pte value)
+{
+	*(volatile uint64*)&dst->val = value.val;
+}
+
+
 class AddressSpace: public BReferenceable {
 private:
 	struct Mapping {
