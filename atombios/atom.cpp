@@ -247,7 +247,6 @@ atom_get_src_int(atom_exec_context *ctx, uint8 attr, int *ptr,
 		case ATOM_ARG_FB:
 			idx = U8(*ptr);
 			(*ptr)++;
-			val = gctx->scratch[((gctx->fb_base + idx) / 4)];
 			if ((gctx->fb_base + (idx * 4)) > gctx->scratch_size_bytes) {
 				ERROR("%s: fb tried to read beyond scratch region!"
 					" %" B_PRIu32 " vs. %" B_PRIu32 "\n", __func__,
@@ -286,7 +285,7 @@ atom_get_src_int(atom_exec_context *ctx, uint8 attr, int *ptr,
 			idx = U8(*ptr);
 			(*ptr)++;
 			val = gctx->card->mc_read(idx);
-			return 0;
+			break;
 	}
 	if (saved)
 		*saved = val;
@@ -1226,8 +1225,10 @@ atom_execute_table_locked(atom_context *ctx, int index, uint32 * params)
 	ectx.lastJump = 0;
 	ectx.lastJumpCount = 0;
 	ectx.jumpStart = 0;
+	// zeroed, as Linux' kcalloc(): tables rely on it (the MC arbiter timings
+	// of DynamicMemorySettings came out as garbage without)
 	if (ws)
-		ectx.ws = (uint32*)malloc(4 * ws);
+		ectx.ws = (uint32*)calloc(ws, 4);
 	else
 		ectx.ws = NULL;
 
