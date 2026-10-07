@@ -1,12 +1,13 @@
 #include "TeamState.h"
 #include "GpuContexts.h"
-
-
-volatile bool gServerStopping = false;
 #include "RadeonDevice.h"
+#include "RadeonServer.h"
 #include <stdio.h>
 #include <string.h>
 #include <algorithm>
+
+
+volatile bool gServerStopping = false;
 
 
 ExternalPtr<TeamRoster> gTeamRoster = MakeExternal<TeamRoster>();
@@ -60,6 +61,18 @@ TeamState::TeamState(team_id team):
 {
 	printf("+TeamState(%" B_PRId32 ")\n", fTeam);
 	fVirtMemPool.Register(0, 0x200000);
+
+	char name[B_OS_NAME_LENGTH];
+	snprintf(name, sizeof(name), "%s%" B_PRId32, RADEON_GFX_SYNCOBJ_POINTS_AREA,
+		fTeam);
+	void *address;
+	fSyncobjPointsArea.SetTo(create_area(name, &address, B_ANY_ADDRESS,
+		RADEON_GFX_SYNCOBJ_POINTS_COUNT * sizeof(uint64), B_FULL_LOCK,
+		B_READ_AREA | B_WRITE_AREA | B_CLONEABLE_AREA));
+	if (fSyncobjPointsArea.IsSet())
+		fSyncobjPoints = (volatile uint64*)address;
+	else
+		printf("[!] team %" B_PRId32 ": no syncobj points area\n", fTeam);
 }
 
 TeamState::~TeamState()
@@ -76,6 +89,10 @@ TeamState::~TeamState()
 	for (auto &it : fHandles.Handles()) {
 		if (it.second.type == HandleType::syncobj) {
 			syncobjs++;
+			// the area goes away with the team state, the syncobj may not
+			volatile uint64 *slot = SyncobjPointSlot(it.first);
+			if (slot != NULL)
+				static_cast<Syncobj*>(it.second.ref.Get())->UnpublishFrom(slot);
 			continue;
 		}
 		BufferObject *buffer = static_cast<BufferObject*>(it.second.ref.Get());
@@ -206,14 +223,34 @@ void TeamState::Terminate()
 	}
 }
 
+volatile uint64 *TeamState::SyncobjPointSlot(int32 handle)
+{
+	if (fSyncobjPoints == NULL || handle < 0
+		|| (uint32)handle >= RADEON_GFX_SYNCOBJ_POINTS_COUNT) {
+		return NULL;
+	}
+	return &fSyncobjPoints[handle];
+}
+
 int32 TeamState::RegisterHandle(const Handle &handleObj)
 {
-	return fHandles.Register(handleObj);
+	int32 handle = fHandles.Register(handleObj);
+	if (handle >= 0 && handleObj.type == HandleType::syncobj) {
+		volatile uint64 *slot = SyncobjPointSlot(handle);
+		if (slot != NULL)
+			static_cast<Syncobj*>(handleObj.ref.Get())->PublishTo(slot);
+	}
+	return handle;
 }
 
 status_t TeamState::FreeHandle(int32 handle)
 {
 	Handle handleObj = fHandles.This(handle);
+	if (handleObj.type == HandleType::syncobj && handleObj.ref.IsSet()) {
+		volatile uint64 *slot = SyncobjPointSlot(handle);
+		if (slot != NULL)
+			static_cast<Syncobj*>(handleObj.ref.Get())->UnpublishFrom(slot);
+	}
 	if (handleObj.type == HandleType::buffer && handleObj.ref.IsSet()
 		&& fAddressSpace->CountMappings(
 			static_cast<BufferObject*>(handleObj.ref.Get())) > 0) {

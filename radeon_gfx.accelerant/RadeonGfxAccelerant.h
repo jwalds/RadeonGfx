@@ -24,6 +24,11 @@ private:
 	static BLocker sContextLock;
 	static std::map<uint32, int32> sContextResetCounters;
 
+	static const volatile uint64 *SyncobjPoints();
+	static bool TimelinePointsSignaled(const uint32_t *handles,
+		const uint64_t *points, unsigned count, bool all,
+		uint32_t *firstSignaled);
+
 public:
 	RadeonGfxAccelerant(int fd);
 	virtual ~RadeonGfxAccelerant() = default;

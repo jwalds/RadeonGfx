@@ -10,6 +10,8 @@
 
 #include "Fence.h"
 
+#include <vector>
+
 
 class Syncobj;
 typedef BReference<Syncobj> SyncobjRef;
@@ -80,6 +82,10 @@ private:
 	DoublyLinkedList<FenceItem, DoublyLinkedListMemberGetLink<FenceItem, &FenceItem::link>> fFences;
 	DoublyLinkedList<Handler> fHandlers;
 	FenceItem *fLastAvail = NULL, *fLastSignaled = NULL;
+	// where the last signaled point is published for the clients
+	std::vector<volatile uint64*> fPublished;
+
+	void Publish();
 
 	static status_t WaitAvail(uint32 *firstSignaled, SyncobjRef *syncobjs, uint64 *points, uint32 count, WaitFlags flags, bigtime_t timeout = B_INFINITE_TIMEOUT);
 	static status_t WaitForSubmit(uint32 *firstSignaled, SyncobjRef *syncobjs, uint64 *points, uint32 count, WaitFlags flags, bigtime_t timeout = B_INFINITE_TIMEOUT);
@@ -103,6 +109,10 @@ public:
 
 	void OnAvail(Handler *handler, uint64 point);
 	void OnAvailCancel(Handler *handler);
+
+	// keeps *slot at the last signaled point (0 if none) until unpublished
+	void PublishTo(volatile uint64 *slot);
+	void UnpublishFrom(volatile uint64 *slot);
 
 	void Dump();
 };

@@ -45,7 +45,7 @@ void Syncobj::FenceHandler::Do(Fence *fence)
 		}
 		it = next;
 	}
-
+	syncobj->Publish();
 }
 
 
@@ -124,6 +124,8 @@ Syncobj::Syncobj(CreateFlags flags)
 Syncobj::~Syncobj()
 {
 	TRACE("-%p.Syncobj()\n", this);
+	// the handles that publish it hold references: nothing is published
+	fPublished.clear();
 	Reset();
 	for (Handler* handler = fHandlers.First(); handler != NULL; ) {
 		Handler *next = fHandlers.GetNext(handler);
@@ -143,6 +145,7 @@ status_t Syncobj::Reset()
 	}
 	fLastAvail = NULL;
 	fLastSignaled = NULL;
+	Publish();
 	return B_OK;
 }
 
@@ -331,6 +334,43 @@ void Syncobj::OnAvailCancel(Handler *handler)
 		return;
 	}
 	fHandlers.Remove(handler);
+}
+
+
+/*!	The published point is the last signaled one: every point up to it counts
+	as signaled (the fences of lower points are dropped when a higher point
+	signals, Wait() for them returns at once). Clients use it for points
+	above 0 only: a timeline point never goes back to unsignaled, a binary
+	syncobj (point 0) does when a fence replaces its fence.
+*/
+void Syncobj::Publish()
+{
+	uint64 point = fLastSignaled == NULL ? 0 : fLastSignaled->point;
+	for (volatile uint64 *slot : fPublished)
+		*slot = point;
+}
+
+void Syncobj::PublishTo(volatile uint64 *slot)
+{
+	AutoLocker<RecursiveLock, AutoLockerLocksLocking<RecursiveLock>> lock(&fLock);
+	for (volatile uint64 *published : fPublished) {
+		if (published == slot)
+			return;
+	}
+	fPublished.push_back(slot);
+	*slot = fLastSignaled == NULL ? 0 : fLastSignaled->point;
+}
+
+void Syncobj::UnpublishFrom(volatile uint64 *slot)
+{
+	AutoLocker<RecursiveLock, AutoLockerLocksLocking<RecursiveLock>> lock(&fLock);
+	for (auto it = fPublished.begin(); it != fPublished.end(); it++) {
+		if (*it == slot) {
+			fPublished.erase(it);
+			break;
+		}
+	}
+	*slot = 0;
 }
 
 

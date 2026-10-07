@@ -70,6 +70,12 @@ private:
 	// mapped, VA operations that failed
 	uint32 fClosedWhileMapped = 0;
 	uint32 fFailedVaOps = 0;
+	// the syncobjs' last signaled points, shared with the client
+	// (RADEON_GFX_SYNCOBJ_POINTS_AREA)
+	AreaDeleter fSyncobjPointsArea;
+	volatile uint64 *fSyncobjPoints = NULL;
+
+	volatile uint64 *SyncobjPointSlot(int32 handle);
 
 	bool WaitForSubmissions();
 

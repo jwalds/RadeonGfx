@@ -431,9 +431,70 @@ int RadeonGfxAccelerant::DrmSyncobjTimelineSignal(const uint32_t *handles, uint6
 	return B_OK;
 }
 
+/*!	Whether a timeline wait is already satisfied by the points the server
+	publishes (RADEON_GFX_SYNCOBJ_POINTS_AREA). Only points above 0 count:
+	those don't go back to unsignaled. Anything else asks the server.
+*/
+bool RadeonGfxAccelerant::TimelinePointsSignaled(const uint32_t *handles,
+	const uint64_t *points, unsigned count, bool all, uint32_t *firstSignaled)
+{
+	const volatile uint64 *published = SyncobjPoints();
+	if (published == NULL || count == 0)
+		return false;
+	for (unsigned i = 0; i < count; i++) {
+		bool signaled = points[i] > 0
+			&& handles[i] < RADEON_GFX_SYNCOBJ_POINTS_COUNT
+			&& published[handles[i]] >= points[i];
+		if (signaled && !all) {
+			if (firstSignaled != NULL)
+				*firstSignaled = i;
+			return true;
+		}
+		if (!signaled && all)
+			return false;
+	}
+	if (!all)
+		return false;
+	if (firstSignaled != NULL)
+		*firstSignaled = 0;
+	return true;
+}
+
+// the server's area of this team, cloned once per process
+const volatile uint64 *RadeonGfxAccelerant::SyncobjPoints()
+{
+	static const volatile uint64 *sPoints = NULL;
+	static int32 sAttempts = 0;
+	if (sPoints != NULL)
+		return sPoints;
+	BAutolock lock(sContextLock);
+	// the server creates it with the team's state, at the first connection
+	if (sPoints != NULL || sAttempts >= 16)
+		return sPoints;
+	sAttempts++;
+	char name[B_OS_NAME_LENGTH];
+	snprintf(name, sizeof(name), "%s%" B_PRId32, RADEON_GFX_SYNCOBJ_POINTS_AREA,
+		getpid());
+	area_id area = find_area(name);
+	if (area < B_OK)
+		return NULL;
+	void *address;
+	// not the server's name: find_area() must not find the clone
+	area_id clone = clone_area("radeon_gfx syncobj points clone", &address,
+		B_ANY_ADDRESS, B_READ_AREA, area);
+	if (clone < B_OK)
+		return NULL;
+	sPoints = (const volatile uint64*)address;
+	return sPoints;
+}
+
 int RadeonGfxAccelerant::DrmSyncobjTimelineWait(uint32_t *handles, uint64_t *points, unsigned num_handles, int64_t timeout_nsec, unsigned flags, uint32_t *first_signaled)
 {
 	CallTimer callTimer(kDrmSyncobjTimelineWaitIndex);
+	if (TimelinePointsSignaled(handles, points, num_handles,
+			(flags & DRM_SYNCOBJ_WAIT_FLAGS_WAIT_ALL) != 0, first_signaled)) {
+		return B_OK;
+	}
 	ThreadLinkHolder link(fConn);
 	link.StartMessage(radeonIoctlMsg);
 	link.Attach<int>(fFd.Get());

@@ -10,6 +10,13 @@
 // needs a round trip to the server
 #define RADEON_GFX_RESET_COUNTER_AREA "radeon_gfx reset counter"
 
+// per client team: the last signaled point (uint64) of each syncobj handle
+// below RADEON_GFX_SYNCOBJ_POINTS_COUNT, read by the client to answer a
+// timeline wait for points already reached without a round trip (Linux'
+// ioctl returns at once there). Name: the prefix and the team id.
+#define RADEON_GFX_SYNCOBJ_POINTS_AREA "radeon_gfx syncobj points "
+#define RADEON_GFX_SYNCOBJ_POINTS_COUNT (16 * B_PAGE_SIZE / sizeof(uint64))
+
 enum {
 	// DRM
 	radeonMmapMsg = userMsgBase,
