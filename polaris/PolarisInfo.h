@@ -4,3 +4,4 @@
 
 
 status_t PolarisInfo();
+status_t PolarisRegs(const char *listPath);

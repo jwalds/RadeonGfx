@@ -75,6 +75,8 @@ int main(int argc, char** argv)
 	// read-only probe of a Polaris GPU through the radeon_hd render device
 	if (argc >= 2 && strcmp(argv[1], "info") == 0)
 		return PolarisInfo() < B_OK ? 1 : 0;
+	if (argc >= 3 && strcmp(argv[1], "regs") == 0)
+		return PolarisRegs(argv[2]) < B_OK ? 1 : 0;
 	if (argc >= 2 && strcmp(argv[1], "memtest") == 0)
 		return PolarisMemTest() < B_OK ? 1 : 0;
 	if (argc >= 2 && strcmp(argv[1], "garttest") == 0)

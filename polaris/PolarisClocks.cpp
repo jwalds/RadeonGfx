@@ -96,6 +96,7 @@ PolarisClocks(const char *action)
 	dpm.Print();
 	CheckRet(dpm.BuildTable());
 	dpm.PrintTable();
+	dpm.PrintSmcArbTable();
 	printf("DPM %s\n", dpm.IsRunning() ? "running" : "not running");
 	PrintCurrentClocks(smu);
 

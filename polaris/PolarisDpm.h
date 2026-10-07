@@ -47,6 +47,8 @@ public:
 	status_t ReloadGraphicsLevels();
 
 	bool IsRunning();
+	// the MC arbiter timings the SMC has (read from SMC RAM)
+	void PrintSmcArbTable();
 
 private:
 	struct BootState {

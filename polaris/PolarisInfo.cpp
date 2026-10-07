@@ -228,3 +228,41 @@ PolarisInfo()
 	PrintMemoryConfig(regs);
 	return B_OK;
 }
+
+
+/*!	Reads the registers of a list ("<name> <dword offset>" per line, as
+	docs/perf/reglist.txt) and prints "<name> <offset> <value>", the format
+	of the Linux dump through amdgpu's debugfs, for comparing the two.
+*/
+status_t
+PolarisRegs(const char *listPath)
+{
+	FILE *list = fopen(listPath, "r");
+	if (list == NULL) {
+		printf("can't open %s\n", listPath);
+		return B_ENTRY_NOT_FOUND;
+	}
+	FileDescriptorCloser fd;
+	BString path;
+	radeon_hd_gpu_info info;
+	if (OpenRenderDevice(fd, path) < B_OK || GetGpuInfo(fd.Get(), info) < B_OK) {
+		fclose(list);
+		printf("no radeon_hd render device\n");
+		return B_ERROR;
+	}
+	void *address = NULL;
+	AreaDeleter regsArea(clone_area("radeon hd regs (read only)", &address,
+		B_ANY_ADDRESS, B_READ_AREA, info.registers_area));
+	if (!regsArea.IsSet()) {
+		fclose(list);
+		return regsArea.Get();
+	}
+	RegisterReader regs((const volatile uint32*)address, info.registers_size);
+
+	char name[128];
+	unsigned int offset;
+	while (fscanf(list, "%127s %x", name, &offset) == 2)
+		printf("%s %#x %#010" B_PRIx32 "\n", name, offset, regs.Read(offset));
+	fclose(list);
+	return B_OK;
+}

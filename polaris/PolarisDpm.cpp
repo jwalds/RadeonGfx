@@ -1020,6 +1020,32 @@ PolarisDpm::Upload()
 }
 
 
+void
+PolarisDpm::PrintSmcArbTable()
+{
+	if (fArbTableStart == 0)
+		return;
+	printf("MC arbiter table in SMC RAM at %#" B_PRIx32 " (DRAM_TIMING,"
+		" DRAM_TIMING2, BURST_TIME):\n", fArbTableStart);
+	const uint32 entrySize = sizeof(SMU74_Discrete_MCArbDramTimingTableEntry);
+	for (uint32 i = 0; i < SMU__NUM_SCLK_DPM_STATE; i++) {
+		printf("  sclk %" B_PRIu32 ":", i);
+		for (uint32 j = 0; j < SMU__NUM_MCLK_DPM_LEVELS && j < 2; j++) {
+			uint32 address = fArbTableStart
+				+ (i * SMU__NUM_MCLK_DPM_LEVELS + j) * entrySize;
+			uint32 timing = 0, timing2 = 0, burst = 0;
+			ReadSmcDword(address, timing);
+			ReadSmcDword(address + 4, timing2);
+			ReadSmcDword(address + 8, burst);
+			// SMC RAM is big endian; the burst time is the first byte
+			printf("  [%" B_PRIu32 "] %#010" B_PRIx32 " %#010" B_PRIx32
+				" %#04" B_PRIx32, j, timing, timing2, burst >> 24);
+		}
+		printf("\n");
+	}
+}
+
+
 bool
 PolarisDpm::IsRunning()
 {
