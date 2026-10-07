@@ -263,21 +263,34 @@ int drmIoctlInt(ExternalPtr<TeamState> teamState, uint32_t request, void *arg)
 						return 0;
 					}
 					case AMDGPU_INFO_MEMORY: {
+						if (request->return_size < sizeof(struct drm_amdgpu_memory_info))
+							return B_BAD_VALUE;
+						// what the memory manager has, as Linux'
+						// amdgpu_info_ioctl(): the heaps RADV (and so Zink's
+						// buffer cache, 1/8 of all heaps) sizes itself by
 						struct drm_amdgpu_memory_info *meminfo = (struct drm_amdgpu_memory_info*)request->return_pointer;
-						meminfo->vram.total_heap_size = 0x80000000;
-						meminfo->vram.usable_heap_size = 0x7e380000;
-						meminfo->vram.heap_usage = 0x2664000;
-						meminfo->vram.max_allocation = 0x5eaa0000;
+						uint64 totalVram, allocVram, totalVramMap, allocVramMap,
+							totalGtt, allocGtt;
+						{
+							auto memMgr = gDevice.MemMgr().Switch();
+							memMgr->GetUsage(totalVram, allocVram, boDomainVram);
+							memMgr->GetUsage(totalVramMap, allocVramMap, boDomainVramMappable);
+							memMgr->GetUsage(totalGtt, allocGtt, boDomainGtt);
+						}
+						meminfo->vram.total_heap_size = totalVram + totalVramMap;
+						meminfo->vram.usable_heap_size = totalVram + totalVramMap;
+						meminfo->vram.heap_usage = allocVram + allocVramMap;
+						meminfo->vram.max_allocation = meminfo->vram.usable_heap_size * 3 / 4;
 
-						meminfo->cpu_accessible_vram.total_heap_size = 0x10000000;
-						meminfo->cpu_accessible_vram.usable_heap_size = 0xf378000;
-						meminfo->cpu_accessible_vram.heap_usage = 0x1290000;
-						meminfo->cpu_accessible_vram.max_allocation = 0xb69a000;
+						meminfo->cpu_accessible_vram.total_heap_size = totalVramMap;
+						meminfo->cpu_accessible_vram.usable_heap_size = totalVramMap;
+						meminfo->cpu_accessible_vram.heap_usage = allocVramMap;
+						meminfo->cpu_accessible_vram.max_allocation = totalVramMap * 3 / 4;
 
-						meminfo->gtt.total_heap_size = 0xc0000000;
-						meminfo->gtt.usable_heap_size = 0xbfddd000;
-						meminfo->gtt.heap_usage = 0xce1000;
-						meminfo->gtt.max_allocation = 0x8fe65c00;
+						meminfo->gtt.total_heap_size = totalGtt;
+						meminfo->gtt.usable_heap_size = totalGtt;
+						meminfo->gtt.heap_usage = allocGtt;
+						meminfo->gtt.max_allocation = totalGtt * 3 / 4;
 						return 0;
 					}
 					case AMDGPU_INFO_FW_VERSION: {

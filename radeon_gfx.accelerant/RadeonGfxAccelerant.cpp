@@ -472,6 +472,11 @@ const volatile uint64 *RadeonGfxAccelerant::SyncobjPoints()
 	if (sPoints != NULL || sAttempts >= 16)
 		return sPoints;
 	sAttempts++;
+	// every wait goes to the server (debugging)
+	if (getenv("RADEONGFX_NO_SYNCOBJ_POINTS") != NULL) {
+		sAttempts = 16;
+		return NULL;
+	}
 	char name[B_OS_NAME_LENGTH];
 	snprintf(name, sizeof(name), "%s%" B_PRId32, RADEON_GFX_SYNCOBJ_POINTS_AREA,
 		getpid());
