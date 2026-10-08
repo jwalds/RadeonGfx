@@ -56,10 +56,17 @@ between the application and the server.
 
 ## Building and installing on Haiku
 
-You need Haiku x86_64 with the development tools (`gcc`, `git`, `meson`,
-`ninja`). Mesa also needs Python 3.10 with Mako and the Wayland development
-files; if `meson setup` stops at a missing dependency, install the package
-it names with `pkgman`.
+You need Haiku x86_64 and these packages (the build tools; Mesa's Python
+3.10 with Mako, parser generators, shader compiler and Wayland files;
+glmark2's image libraries; the Vulkan loader and Haiku's in-process Wayland
+server to run applications):
+
+```sh
+pkgman install haiku_devel gcc git meson ninja pkgconfig \
+    python3.10 mako_python310 bison flex glslang \
+    expat_devel zlib_devel wayland_devel wayland_protocols wayland_server \
+    libjpeg_turbo_devel libpng16_devel vulkan
+```
 
 1. **The patched `radeon_hd` driver.** Build and install it as described in
    the haiku-radeon-polaris README; patch 0012 adds the render device the
